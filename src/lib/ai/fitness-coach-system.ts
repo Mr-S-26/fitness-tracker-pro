@@ -571,7 +571,7 @@ export class AIFitnessCoachSystem {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama-3.2-90b-text-preview', // Using the most powerful model
+        model: 'llama-3.3-70b-versatile', // ✅ UPDATED MODEL
         messages: [
           { role: 'system', content: systemPrompt },
           ...this.conversationContext.slice(-5), // Include recent context
@@ -584,6 +584,8 @@ export class AIFitnessCoachSystem {
     })
 
     if (!response.ok) {
+      const errorData = await response.json();
+      console.error('❌ Groq API Error Response:', errorData);
       throw new Error('Groq API error')
     }
 
