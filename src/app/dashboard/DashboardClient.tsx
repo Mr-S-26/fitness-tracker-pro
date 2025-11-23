@@ -71,8 +71,8 @@ export default function DashboardClient({ user }: DashboardClientProps) {
           </div>
         </div>
 
-        {/* Quick Actions Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        {/* Quick Actions Grid - CHANGED FROM 3 TO 4 COLUMNS */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {/* Quick Stats */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
             <div className="flex items-center gap-3 mb-4">
@@ -113,6 +113,25 @@ export default function DashboardClient({ user }: DashboardClientProps) {
               className="w-full bg-blue-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors"
             >
               {showAICoach ? 'Hide Coach' : 'Chat with Coach'}
+            </button>
+          </div>
+
+          {/* Exercise Library - ✅ NOW IN THE GRID */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-indigo-100 rounded-lg">
+                <Dumbbell className="w-6 h-6 text-indigo-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Exercise Library</h3>
+            </div>
+            <p className="text-gray-600 mb-4 text-sm">
+              Browse exercises, view details, and create custom exercises
+            </p>
+            <button
+              onClick={() => router.push('/exercises')}
+              className="w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              Browse Library
             </button>
           </div>
 
