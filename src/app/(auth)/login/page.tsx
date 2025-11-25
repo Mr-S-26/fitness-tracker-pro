@@ -14,28 +14,41 @@ export default function LoginPage() {
   const supabase = createClient();
 
   const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
+  e.preventDefault();
+  setError(null);
+  setLoading(true);
 
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-      if (error) throw error;
+    if (error) throw error;
 
-      if (data.user) {
+    if (data.user) {
+      // ✅ NEW: Check if user completed onboarding
+      const { data: profile } = await supabase
+        .from('user_fitness_profiles')
+        .select('onboarding_completed')
+        .eq('user_id', data.user.id)
+        .single();
+
+      if (profile?.onboarding_completed) {
+        // User already completed onboarding → Go to dashboard
         router.push('/dashboard');
-        router.refresh();
+      } else {
+        // User hasn't completed onboarding → Go to onboarding
+        router.push('/onboarding');
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to login');
-    } finally {
-      setLoading(false);
+      router.refresh();
     }
-  };
+  } catch (err) {
+    setError(err instanceof Error ? err.message : 'Failed to login');
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 px-4">

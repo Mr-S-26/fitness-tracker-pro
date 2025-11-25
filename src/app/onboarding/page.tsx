@@ -43,6 +43,7 @@ export default function OnboardingPage() {
 
   // Form data state
 // Form data state
+// Form data state
 const [formData, setFormData] = useState<OnboardingFormData>({
   // Goals
   primary_goal: '',
@@ -80,9 +81,9 @@ const [formData, setFormData] = useState<OnboardingFormData>({
   nutrition_tracking: false,
   dietary_preferences: [],
   
-  // Preferences
-  coaching_style: 'balanced' as const, // ✅ FIX: Add 'as const'
-  motivation_type: 'balanced' as const, // ✅ FIX: Add 'as const'
+  // Preferences - ✅ FIXED
+  coaching_style: 'balanced',
+  motivation_type: 'analytical', // ✅ Changed from 'balanced' to 'analytical'
   wants_voice_coaching: true,
 });
 

@@ -559,11 +559,16 @@ export class AIFitnessCoachSystem {
     })
   }
 
-  private async callGroq(prompt: string, systemPrompt: string): Promise<string> {
-    if (!process.env.NEXT_PUBLIC_GROQ_API_KEY) {
-      throw new Error('Groq API key not configured')
-    }
+ private async callGroq(prompt: string, systemPrompt: string): Promise<string> {
+  if (!process.env.NEXT_PUBLIC_GROQ_API_KEY) {
+    throw new Error('Groq API key not configured')
+  }
 
+  console.log('📡 Calling Groq API...');
+  console.log('🔑 API Key present:', !!process.env.NEXT_PUBLIC_GROQ_API_KEY);
+  console.log('📝 Prompt length:', prompt.length);
+
+  try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -571,34 +576,49 @@ export class AIFitnessCoachSystem {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile', // ✅ UPDATED MODEL
+        model: 'llama-3.3-70b-versatile',
         messages: [
           { role: 'system', content: systemPrompt },
-          ...this.conversationContext.slice(-5), // Include recent context
           { role: 'user', content: prompt }
         ],
         max_tokens: 2000,
         temperature: 0.7,
-        response_format: { type: "json_object" } // Ensure JSON responses
       })
-    })
+    });
+
+    console.log('📊 Response status:', response.status);
+    console.log('📊 Response ok:', response.ok);
 
     if (!response.ok) {
-      const errorData = await response.json();
-      console.error('❌ Groq API Error Response:', errorData);
-      throw new Error('Groq API error')
+      // ✅ FIX: Better error handling
+      let errorMessage = `Groq API error: ${response.status}`;
+      try {
+        const errorData = await response.text(); // Use .text() instead of .json()
+        console.error('❌ Groq API Error Response:', errorData);
+        errorMessage += ` - ${errorData}`;
+      } catch (parseError) {
+        console.error('❌ Could not parse error response');
+      }
+      throw new Error(errorMessage);
     }
 
-    const data = await response.json()
+    const data = await response.json();
+    console.log('✅ Groq API Success');
+    
+    const content = data.choices[0].message.content;
     
     // Store in conversation context
     this.conversationContext.push(
       { role: 'user', content: prompt },
-      { role: 'assistant', content: data.choices[0].message.content }
-    )
+      { role: 'assistant', content: content }
+    );
 
-    return data.choices[0].message.content
+    return content;
+  } catch (error) {
+    console.error('❌ Groq API call failed:', error);
+    throw error;
   }
+}
 
   private async callGemini(prompt: string, systemPrompt: string): Promise<string> {
     if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {

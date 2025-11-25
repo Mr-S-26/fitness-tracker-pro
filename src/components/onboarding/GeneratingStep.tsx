@@ -49,11 +49,27 @@ export default function GeneratingStep({ formData, userId, onComplete }: Generat
         await new Promise(resolve => setTimeout(resolve, GENERATION_STEPS[i].duration));
       }
 
-      // Generate program
-      const program = await generatePersonalizedProgram(formData, userId);
+      // ✅ FIX: Add try-catch around program generation
+      console.log('🏋️ Generating workout program...');
+      let program;
+      try {
+        program = await generatePersonalizedProgram(formData, userId);
+        console.log('✅ Program generated:', program.program_name);
+      } catch (programError) {
+        console.error('❌ Program generation failed:', programError);
+        throw new Error('Failed to generate workout program. Please try again.');
+      }
       
-      // Calculate nutrition
-      const nutrition = calculateNutritionPlan(formData);
+      // ✅ FIX: Add try-catch around nutrition calculation
+      console.log('🥗 Calculating nutrition plan...');
+      let nutrition;
+      try {
+        nutrition = calculateNutritionPlan(formData);
+        console.log('✅ Nutrition calculated:', nutrition.daily_calories, 'calories');
+      } catch (nutritionError) {
+        console.error('❌ Nutrition calculation failed:', nutritionError);
+        throw new Error('Failed to calculate nutrition plan. Please try again.');
+      }
 
       // Mark as complete
       setCurrentStepIndex(GENERATION_STEPS.length);
@@ -64,8 +80,8 @@ export default function GeneratingStep({ formData, userId, onComplete }: Generat
       onComplete(program, nutrition);
       
     } catch (err) {
-      console.error('Generation error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to generate program');
+      console.error('❌ Generation error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to generate program. Please try again.');
     }
   };
 

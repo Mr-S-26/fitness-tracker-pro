@@ -1,8 +1,11 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import DashboardClient from './DashboardClient';
 
-export default async function DashboardPage() {
+export default async function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const supabase = await createClient();
 
   const {
@@ -13,17 +16,16 @@ export default async function DashboardPage() {
     redirect('/login');
   }
 
-  // ✅ NEW: Check onboarding status
+  // ✅ Check if user completed onboarding
   const { data: profile } = await supabase
     .from('user_fitness_profiles')
     .select('onboarding_completed')
     .eq('user_id', user.id)
     .single();
 
-  // If onboarding not completed, redirect to onboarding
   if (!profile?.onboarding_completed) {
     redirect('/onboarding');
   }
 
-  return <DashboardClient user={user} />;
+  return <>{children}</>;
 }

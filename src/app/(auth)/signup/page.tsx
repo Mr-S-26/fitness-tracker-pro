@@ -46,15 +46,15 @@ export default function SignupPage() {
       if (error) throw error;
 
       if (data.user) {
-        setSuccess(true);
-        // If email confirmation is disabled, redirect immediately
-        if (data.session) {
-          setTimeout(() => {
-            router.push('/dashboard');
-            router.refresh();
-          }, 2000);
-        }
-      }
+  setSuccess(true);
+  // If email confirmation is disabled, redirect immediately
+  if (data.session) {
+    setTimeout(() => {
+      router.push('/onboarding'); // ✅ CHANGED: Go to onboarding, not dashboard
+      router.refresh();
+    }, 2000);
+  }
+}
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign up');
     } finally {

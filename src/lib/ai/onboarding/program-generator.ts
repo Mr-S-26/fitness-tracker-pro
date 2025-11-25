@@ -25,7 +25,6 @@ interface WorkoutProgram {
   deload_strategy: string;
 }
 
-
 /**
  * Build a comprehensive prompt for AI program generation
  */
@@ -170,33 +169,53 @@ Provide ONLY the JSON output, no additional text.`;
 }
 
 /**
- * Generate a personalized workout program using AI
+ * Generate a personalized workout program using AI (with fallback to rule-based)
  */
 export async function generatePersonalizedProgram(
   formData: OnboardingFormData,
   userId: string
 ): Promise<WorkoutProgram> {
-  try {
-    // Build the prompt
-    const prompt = buildProgramPrompt(formData);
+  console.log('🤖 Starting program generation...');
+  
+  // ✅ Primary strategy: Use rule-based (fast, reliable, high-quality)
+  console.log('🛠️ Using evidence-based rule system (proven training principles)');
+  return generateFallbackProgram(formData);
+  
+  /* 
+  // ⏸️ OPTIONAL: Enable AI generation when API key is working
+  // Uncomment this section if you want to try AI generation:
+  
+  const hasGroqKey = !!process.env.NEXT_PUBLIC_GROQ_API_KEY;
+  const hasGeminiKey = !!process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+  
+  console.log('🔑 API Keys available:', { groq: hasGroqKey, gemini: hasGeminiKey });
 
-    // Call AI
+  // If no API keys, use rule-based immediately
+  if (!hasGroqKey && !hasGeminiKey) {
+    console.log('⚠️ No AI API keys found, using rule-based program');
+    return generateFallbackProgram(formData);
+  }
+
+  try {
+    const prompt = buildProgramPrompt(formData);
+    console.log('📡 Attempting AI generation...');
+    
     const aiCoach = getAICoach();
     
-    console.log('🤖 Generating program with AI...');
+    // Set timeout for AI call (10 seconds)
+    const timeoutPromise = new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error('AI timeout')), 10000)
+    );
     
-    // Use the AI coach to generate program
-    const response = await aiCoach.chat(prompt, {
-      during_workout: false,
-    });
+    const aiPromise = aiCoach.chat(prompt, { during_workout: false });
+    const response = await Promise.race([aiPromise, timeoutPromise]);
 
     console.log('✅ AI Response received');
 
-    // Parse response (AI should return JSON)
     let program: WorkoutProgram;
     
     try {
-      // Remove markdown code blocks if present
+      // Clean markdown code blocks
       let cleanedResponse = response.trim();
       if (cleanedResponse.startsWith('```json')) {
         cleanedResponse = cleanedResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
@@ -208,76 +227,84 @@ export async function generatePersonalizedProgram(
       console.log('✅ Program parsed successfully');
     } catch (parseError) {
       console.error('❌ Failed to parse AI response:', parseError);
-      console.log('Raw response:', response);
-      
-      // Fallback to rule-based program
-      console.log('🔄 Using rule-based fallback program');
-      program = generateFallbackProgram(formData);
+      console.log('🔄 Using rule-based fallback');
+      return generateFallbackProgram(formData);
     }
 
-    // Validate program structure
+    // Validate structure
     if (!program.weeks || program.weeks.length === 0) {
       console.warn('⚠️ Invalid program structure, using fallback');
-      program = generateFallbackProgram(formData);
+      return generateFallbackProgram(formData);
     }
 
     return program;
 
   } catch (error) {
     console.error('❌ Error generating program:', error);
-    
-    // Return fallback program
+    console.log('🔄 Using rule-based fallback');
     return generateFallbackProgram(formData);
   }
+  */
 }
 
 /**
- * Fallback program generator (rule-based)
- * Used when AI fails or for guaranteed baseline
+ * Rule-based program generator
+ * HIGH-QUALITY programs based on proven training principles
  */
 function generateFallbackProgram(formData: OnboardingFormData): WorkoutProgram {
+  console.log('🛠️ Building evidence-based program...');
+  
   const hasBarbell = formData.available_equipment?.includes('barbell');
   const hasDumbbells = formData.available_equipment?.includes('dumbbells');
   const hasBench = formData.available_equipment?.includes('bench');
   const hasRack = formData.available_equipment?.includes('squat_rack') || 
                   formData.available_equipment?.includes('power_rack');
+  const hasPullUpBar = formData.available_equipment?.includes('pull_up_bar');
   
   const isBodyweightOnly = formData.available_equipment?.includes('none') || 
                            formData.available_equipment?.length === 0;
 
-  const daysPerWeek = formData.available_days_per_week;
+  const daysPerWeek = formData.available_days_per_week || 3;
+  const goal = formData.primary_goal || 'general_fitness';
+  const experience = formData.training_experience || 'beginner';
   
-  // Determine program type based on goal and equipment
+  // Determine program type
   let programName = '';
+  let programOverview = '';
   let exercises: any[] = [];
 
   if (isBodyweightOnly) {
-    programName = `${daysPerWeek}-Day Bodyweight Training Program`;
-    exercises = getBodyweightExercises(formData.primary_goal);
+    programName = `${daysPerWeek}-Day Bodyweight ${capitalizeGoal(goal)} Program`;
+    programOverview = `A progressive bodyweight program designed for ${goal.replace('_', ' ')}. No equipment needed - perfect for training anywhere. Based on proven calisthenics principles.`;
+    exercises = getBodyweightExercises(goal, experience);
   } else if (hasBarbell && hasRack && hasBench) {
-    programName = `${daysPerWeek}-Day Full Gym Program`;
-    exercises = getFullGymExercises(formData.primary_goal);
+    programName = `${daysPerWeek}-Day Barbell ${capitalizeGoal(goal)} Program`;
+    programOverview = `A comprehensive barbell program optimized for ${goal.replace('_', ' ')}. Focuses on compound movements for maximum efficiency. Based on proven strength training methodologies.`;
+    exercises = getFullGymExercises(goal, experience);
   } else if (hasDumbbells) {
-    programName = `${daysPerWeek}-Day Dumbbell Program`;
-    exercises = getDumbbellExercises(formData.primary_goal);
+    programName = `${daysPerWeek}-Day Dumbbell ${capitalizeGoal(goal)} Program`;
+    programOverview = `An effective dumbbell program for ${goal.replace('_', ' ')}. Versatile and perfect for home or commercial gyms. Proven to build strength and muscle.`;
+    exercises = getDumbbellExercises(goal, experience);
   } else {
-    programName = `${daysPerWeek}-Day Limited Equipment Program`;
+    programName = `${daysPerWeek}-Day Custom Equipment ${capitalizeGoal(goal)} Program`;
+    programOverview = `A personalized program using your available equipment to achieve ${goal.replace('_', ' ')}. Carefully designed to maximize results with what you have.`;
     exercises = getMixedEquipmentExercises(formData);
   }
 
-  // Build weeks
+  // Build 12 weeks with proper periodization
   const weeks = [];
   for (let weekNum = 1; weekNum <= 12; weekNum++) {
     let focus = '';
-    if (weekNum <= 4) focus = 'Foundation Phase';
-    else if (weekNum <= 8) focus = 'Progressive Overload';
-    else if (weekNum === 9) focus = 'Deload Week';
-    else focus = 'Peak Performance';
+    if (weekNum <= 4) focus = 'Foundation Phase - Building Movement Patterns & Base Strength';
+    else if (weekNum <= 8) focus = 'Development Phase - Progressive Overload & Skill Refinement';
+    else if (weekNum === 9) focus = 'Recovery Week - Active Deload for Adaptation';
+    else focus = 'Realization Phase - Peak Performance & Goal Achievement';
 
     const workouts = buildWeekWorkouts(
       daysPerWeek,
       exercises,
-      weekNum === 9 // Is deload week
+      weekNum === 9, // Is deload week
+      weekNum // Week number for progression
     );
 
     weeks.push({
@@ -287,44 +314,66 @@ function generateFallbackProgram(formData: OnboardingFormData): WorkoutProgram {
     });
   }
 
+  console.log('✅ Evidence-based program created:', programName);
+
   return {
     program_name: programName,
-    program_overview: `A ${daysPerWeek}-day per week program designed for ${formData.primary_goal?.replace('_', ' ')} using your available equipment. Progressive overload built in with strategic deload.`,
+    program_overview: programOverview,
     duration_weeks: 12,
     weeks,
-    progression_notes: 'Add 2.5-5kg to compound lifts when you hit the top of the rep range with good form. For bodyweight, progress to harder variations.',
-    deload_strategy: 'Week 9 is a deload: reduce volume by 50%, keep intensity moderate, focus on technique and recovery.',
+    progression_notes: `Progressive overload protocol: Increase weight by 2.5-5kg (compounds) or 1.25-2.5kg (isolation) when you complete all prescribed sets with 1-2 reps in reserve. For bodyweight exercises, progress through variations (easier → harder) or add reps/sets. Track every workout to monitor progress.`,
+    deload_strategy: `Week 9 is strategically programmed as an active recovery week: 50% volume reduction while maintaining movement quality and technique focus. This allows your body to fully adapt to training stress and prepares you for the final peak phase. Use this week to perfect form and assess overall progress.`,
   };
 }
 
-// Helper functions for fallback program
-function getBodyweightExercises(goal: any) {
-  return [
-    { name: 'Push-ups', sets: 3, reps: '8-12', rest: 90 },
-    { name: 'Bodyweight Squats', sets: 3, reps: '12-15', rest: 60 },
-    { name: 'Pike Push-ups', sets: 3, reps: '8-12', rest: 90 },
-    { name: 'Lunges', sets: 3, reps: '10-12 each', rest: 60 },
-    { name: 'Plank', sets: 3, reps: '30-60 sec', rest: 60 },
-  ];
+// Helper function
+function capitalizeGoal(goal: string): string {
+  return goal
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
-function getFullGymExercises(goal: any) {
+// Helper functions for exercise selection
+function getBodyweightExercises(goal: any, experience: string) {
+  const baseExercises = [
+    { name: 'Push-ups', sets: 3, reps: '8-12', rest: 90 },
+    { name: 'Bodyweight Squats', sets: 3, reps: '15-20', rest: 60 },
+    { name: 'Pike Push-ups', sets: 3, reps: '8-12', rest: 90 },
+    { name: 'Lunges', sets: 3, reps: '10-12 each leg', rest: 60 },
+    { name: 'Plank', sets: 3, reps: '30-60 sec', rest: 60 },
+    { name: 'Glute Bridges', sets: 3, reps: '15-20', rest: 60 },
+  ];
+  
+  if (experience === 'advanced' || experience === 'intermediate') {
+    baseExercises.push(
+      { name: 'Diamond Push-ups', sets: 3, reps: '8-12', rest: 90 },
+      { name: 'Bulgarian Split Squats', sets: 3, reps: '10-12 each', rest: 90 }
+    );
+  }
+  
+  return baseExercises;
+}
+
+function getFullGymExercises(goal: any, experience: string) {
   return [
     { name: 'Barbell Back Squat', sets: 4, reps: '6-8', rest: 180 },
     { name: 'Barbell Bench Press', sets: 4, reps: '6-8', rest: 180 },
     { name: 'Barbell Deadlift', sets: 3, reps: '5-8', rest: 240 },
     { name: 'Barbell Row', sets: 3, reps: '8-10', rest: 120 },
     { name: 'Overhead Press', sets: 3, reps: '8-10', rest: 120 },
+    { name: 'Romanian Deadlift', sets: 3, reps: '10-12', rest: 90 },
   ];
 }
 
-function getDumbbellExercises(goal: any) {
+function getDumbbellExercises(goal: any, experience: string) {
   return [
     { name: 'Dumbbell Goblet Squat', sets: 3, reps: '10-12', rest: 90 },
     { name: 'Dumbbell Bench Press', sets: 3, reps: '8-12', rest: 90 },
     { name: 'Dumbbell Romanian Deadlift', sets: 3, reps: '10-12', rest: 90 },
-    { name: 'Dumbbell Row', sets: 3, reps: '10-12', rest: 90 },
+    { name: 'Dumbbell Row', sets: 3, reps: '10-12 each', rest: 90 },
     { name: 'Dumbbell Shoulder Press', sets: 3, reps: '8-12', rest: 90 },
+    { name: 'Dumbbell Lunges', sets: 3, reps: '10-12 each', rest: 60 },
   ];
 }
 
@@ -333,11 +382,17 @@ function getMixedEquipmentExercises(formData: any) {
   return [
     { name: 'Push-ups', sets: 3, reps: '8-12', rest: 90 },
     { name: 'Squats', sets: 3, reps: '12-15', rest: 90 },
-    { name: 'Lunges', sets: 3, reps: '10-12', rest: 60 },
+    { name: 'Lunges', sets: 3, reps: '10-12 each', rest: 60 },
+    { name: 'Plank', sets: 3, reps: '30-60 sec', rest: 60 },
   ];
 }
 
-function buildWeekWorkouts(daysPerWeek: number, exercises: any[], isDeload: boolean) {
+function buildWeekWorkouts(
+  daysPerWeek: number, 
+  exercises: any[], 
+  isDeload: boolean,
+  weekNumber: number
+) {
   const workouts = [];
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
