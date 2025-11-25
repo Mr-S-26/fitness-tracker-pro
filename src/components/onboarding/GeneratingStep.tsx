@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Brain, CheckCircle, Loader2 } from 'lucide-react';
 import type { OnboardingFormData } from '@/types/database';
 import { generatePersonalizedProgram } from '@/lib/ai/onboarding/program-generator';
@@ -23,70 +23,86 @@ const GENERATION_STEPS = [
 export default function GeneratingStep({ formData, userId, onComplete }: GeneratingStepProps) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  
+  // ✅ FIX: Use ref to prevent multiple generations
+  const hasGenerated = useRef(false);
 
   useEffect(() => {
-  const generate = async () => {
-    try {
-      // ✅ FIX: Validate required fields before generation
-      if (!formData.primary_goal) {
-        setError('Primary goal is required');
-        return;
-      }
-      
-      if (!formData.training_experience) {
-        setError('Training experience is required');
-        return;
-      }
-      
-      if (!formData.available_equipment || formData.available_equipment.length === 0) {
-        setError('Please select at least one equipment option');
-        return;
-      }
-
-      // Simulate step progression
-      for (let i = 0; i < GENERATION_STEPS.length; i++) {
-        setCurrentStepIndex(i);
-        await new Promise(resolve => setTimeout(resolve, GENERATION_STEPS[i].duration));
-      }
-
-      // ✅ FIX: Add try-catch around program generation
-      console.log('🏋️ Generating workout program...');
-      let program;
-      try {
-        program = await generatePersonalizedProgram(formData, userId);
-        console.log('✅ Program generated:', program.program_name);
-      } catch (programError) {
-        console.error('❌ Program generation failed:', programError);
-        throw new Error('Failed to generate workout program. Please try again.');
-      }
-      
-      // ✅ FIX: Add try-catch around nutrition calculation
-      console.log('🥗 Calculating nutrition plan...');
-      let nutrition;
-      try {
-        nutrition = calculateNutritionPlan(formData);
-        console.log('✅ Nutrition calculated:', nutrition.daily_calories, 'calories');
-      } catch (nutritionError) {
-        console.error('❌ Nutrition calculation failed:', nutritionError);
-        throw new Error('Failed to calculate nutrition plan. Please try again.');
-      }
-
-      // Mark as complete
-      setCurrentStepIndex(GENERATION_STEPS.length);
-      
-      // Wait a bit before proceeding
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      onComplete(program, nutrition);
-      
-    } catch (err) {
-      console.error('❌ Generation error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to generate program. Please try again.');
+    // ✅ FIX: Prevent duplicate runs
+    if (hasGenerated.current) {
+      console.log('⏭️ Generation already completed, skipping...');
+      return;
     }
-  };
+    
+    hasGenerated.current = true;
+    
+    const generate = async () => {
+      try {
+        // ✅ FIX: Validate required fields before generation
+        if (!formData.primary_goal) {
+          setError('Primary goal is required');
+          return;
+        }
+        
+        if (!formData.training_experience) {
+          setError('Training experience is required');
+          return;
+        }
+        
+        if (!formData.available_equipment || formData.available_equipment.length === 0) {
+          setError('Please select at least one equipment option');
+          return;
+        }
 
-  generate();
-}, [formData, userId, onComplete]);
+        // Simulate step progression
+        for (let i = 0; i < GENERATION_STEPS.length; i++) {
+          setCurrentStepIndex(i);
+          await new Promise(resolve => setTimeout(resolve, GENERATION_STEPS[i].duration));
+        }
+
+        // ✅ Generate program
+        console.log('🏋️ Generating workout program...');
+        let program;
+        try {
+          program = await generatePersonalizedProgram(formData, userId);
+          console.log('✅ Program generated:', program.program_name);
+        } catch (programError) {
+          console.error('❌ Program generation failed:', programError);
+          throw new Error('Failed to generate workout program. Please try again.');
+        }
+        
+        // ✅ Calculate nutrition
+        console.log('🥗 Calculating nutrition plan...');
+        let nutrition;
+        try {
+          nutrition = calculateNutritionPlan(formData);
+          console.log('✅ Nutrition calculated:', nutrition.daily_calories, 'calories');
+        } catch (nutritionError) {
+          console.error('❌ Nutrition calculation failed:', nutritionError);
+          throw new Error('Failed to calculate nutrition plan. Please try again.');
+        }
+
+        // Mark as complete
+        setCurrentStepIndex(GENERATION_STEPS.length);
+        
+        // Wait a bit before proceeding
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        console.log('✅ Calling onComplete with program and nutrition');
+        onComplete(program, nutrition);
+        
+      } catch (err) {
+        console.error('❌ Generation error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to generate program. Please try again.');
+        hasGenerated.current = false; // Allow retry on error
+      }
+    };
+
+    generate();
+    
+    // ✅ FIX: Empty dependency array - only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (error) {
     return (
@@ -160,7 +176,6 @@ export default function GeneratingStep({ formData, userId, onComplete }: Generat
         {GENERATION_STEPS.map((step, index) => {
           const isComplete = index < currentStepIndex;
           const isCurrent = index === currentStepIndex;
-          const isPending = index > currentStepIndex;
 
           return (
             <div

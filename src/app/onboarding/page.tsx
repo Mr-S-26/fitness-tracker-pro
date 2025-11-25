@@ -42,50 +42,48 @@ export default function OnboardingPage() {
   const [userId, setUserId] = useState<string | null>(null);
 
   // Form data state
-// Form data state
-// Form data state
-const [formData, setFormData] = useState<OnboardingFormData>({
-  // Goals
-  primary_goal: '',
-  specific_goals: '',
-  target_date: undefined,
-  
-  // Experience
-  training_experience: '',
-  years_training: 0,
-  previous_programs: '',
-  
-  // Schedule
-  available_days_per_week: 3,
-  session_duration_minutes: 60,
-  preferred_training_times: [],
-  
-  // Equipment
-  training_location: '',
-  available_equipment: [],
-  
-  // Injuries
-  current_injuries: [],
-  movement_restrictions: '',
-  
-  // Body Metrics
-  height_cm: 170,
-  weight_kg: 70,
-  body_fat_percentage: undefined,
-  age: 25,
-  sex: 'male',
-  
-  // Lifestyle
-  average_sleep_hours: 7,
-  stress_level: 3,
-  nutrition_tracking: false,
-  dietary_preferences: [],
-  
-  // Preferences - ✅ FIXED
-  coaching_style: 'balanced',
-  motivation_type: 'analytical', // ✅ Changed from 'balanced' to 'analytical'
-  wants_voice_coaching: true,
-});
+  const [formData, setFormData] = useState<OnboardingFormData>({
+    // Goals
+    primary_goal: '',
+    specific_goals: '',
+    target_date: undefined,
+    
+    // Experience
+    training_experience: '',
+    years_training: 0,
+    previous_programs: '',
+    
+    // Schedule
+    available_days_per_week: 3,
+    session_duration_minutes: 60,
+    preferred_training_times: [],
+    
+    // Equipment
+    training_location: '',
+    available_equipment: [],
+    
+    // Injuries
+    current_injuries: [],
+    movement_restrictions: '',
+    
+    // Body Metrics
+    height_cm: 170,
+    weight_kg: 70,
+    body_fat_percentage: undefined,
+    age: 25,
+    sex: 'male',
+    
+    // Lifestyle
+    average_sleep_hours: 7,
+    stress_level: 3,
+    nutrition_tracking: false,
+    dietary_preferences: [],
+    
+    // Preferences
+    coaching_style: 'balanced',
+    motivation_type: 'analytical',
+    wants_voice_coaching: true,
+  });
 
   // Generated program data
   const [generatedProgram, setGeneratedProgram] = useState<any>(null);
@@ -122,9 +120,14 @@ const [formData, setFormData] = useState<OnboardingFormData>({
   }, [router, supabase]);
 
   const handleNext = () => {
+    console.log('🔄 handleNext called, current step:', currentStep);
     if (currentStep < ONBOARDING_STEPS.length - 1) {
-      setCurrentStep(currentStep + 1);
+      const nextStep = currentStep + 1;
+      console.log('➡️ Moving to step:', nextStep, ONBOARDING_STEPS[nextStep]);
+      setCurrentStep(nextStep);
       window.scrollTo(0, 0);
+    } else {
+      console.log('⚠️ Already at last step');
     }
   };
 
@@ -133,6 +136,25 @@ const [formData, setFormData] = useState<OnboardingFormData>({
       setCurrentStep(currentStep - 1);
       window.scrollTo(0, 0);
     }
+  };
+
+  // ✅ FIX: The onComplete callback for GeneratingStep
+  const handleGenerationComplete = (program: any, nutrition: any) => {
+    console.log('🎉 Generation complete callback received!');
+    console.log('📊 Program:', program?.program_name);
+    console.log('🥗 Nutrition:', nutrition?.daily_calories);
+    
+    setGeneratedProgram(program);
+    setGeneratedNutrition(nutrition);
+    
+    console.log('✅ State updated, moving to review step...');
+    
+    // Move to review step (step 10)
+    const reviewStepIndex = ONBOARDING_STEPS.indexOf('review');
+    console.log('📍 Review step index:', reviewStepIndex);
+    setCurrentStep(reviewStepIndex);
+    
+    window.scrollTo(0, 0);
   };
 
   const canProceed = (): boolean => {
@@ -168,6 +190,7 @@ const [formData, setFormData] = useState<OnboardingFormData>({
 
   const renderStep = () => {
     const step = ONBOARDING_STEPS[currentStep];
+    console.log('🎬 Rendering step:', step);
     
     switch (step) {
       case 'welcome':
@@ -193,20 +216,24 @@ const [formData, setFormData] = useState<OnboardingFormData>({
           <GeneratingStep 
             formData={formData}
             userId={userId!}
-            onComplete={(program, nutrition) => {
-              setGeneratedProgram(program);
-              setGeneratedNutrition(nutrition);
-            }}
+            onComplete={handleGenerationComplete}
           />
         );
       case 'review':
+        console.log('📋 Rendering ReviewStep with:', {
+          hasProgram: !!generatedProgram,
+          hasNutrition: !!generatedNutrition,
+        });
         return (
           <ReviewStep 
             formData={formData}
             program={generatedProgram}
             nutrition={generatedNutrition}
             userId={userId!}
-            onComplete={() => router.push('/dashboard')}
+            onComplete={() => {
+              console.log('✅ Review complete, redirecting to dashboard');
+              router.push('/dashboard');
+            }}
           />
         );
       default:
@@ -229,6 +256,15 @@ const [formData, setFormData] = useState<OnboardingFormData>({
   const isFirstStep = currentStep === 0;
   const isGeneratingStep = ONBOARDING_STEPS[currentStep] === 'generating';
   const isReviewStep = ONBOARDING_STEPS[currentStep] === 'review';
+
+  console.log('🎯 Current state:', {
+    currentStep,
+    stepName: ONBOARDING_STEPS[currentStep],
+    isGeneratingStep,
+    isReviewStep,
+    hasProgram: !!generatedProgram,
+    hasNutrition: !!generatedNutrition,
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 p-4 py-8">
