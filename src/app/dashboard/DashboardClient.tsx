@@ -25,8 +25,8 @@ export default function DashboardClient({ user }: DashboardClientProps) {
   };
 
   const handleStartWorkout = () => {
-    router.push('/workout/active');
-  };
+  router.push('/workout/program'); 
+};
 
   return (
     <div className="min-h-screen bg-gray-50">
