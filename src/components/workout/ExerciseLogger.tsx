@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { Plus, Trash2, Check, Clock } from 'lucide-react';
 import AISetFeedback from '@/components/coaching/AISetFeedback';
-import RestTimer from './RestTimer';
+import EnhancedRestTimer from './EnhancedRestTimer';
+import PreSetCoaching from '@/components/coaching/PreSetCoaching';
 
 interface Exercise {
   id: string;
@@ -47,6 +48,24 @@ export default function ExerciseLogger({
   const [completedSetIndex, setCompletedSetIndex] = useState<number | null>(null);
   const [showRestTimer, setShowRestTimer] = useState(false);
   const [restDuration, setRestDuration] = useState(90);
+  const [showPreSetCoaching, setShowPreSetCoaching] = useState(false);
+  const [pendingSetIndex, setPendingSetIndex] = useState<number | null>(null);
+
+  const handleStartSet = (setIndex: number) => {
+    setPendingSetIndex(setIndex);
+    setActiveSetIndex(setIndex);
+    setShowPreSetCoaching(true);
+  };
+
+  const handleCoachingReady = () => {
+    setShowPreSetCoaching(false);
+    // Set remains active, user can now enter weight/reps
+  };
+
+  const handleCoachingSkip = () => {
+    setShowPreSetCoaching(false);
+    // Set remains active, user can now enter weight/reps
+  };
 
   const handleCompleteSet = (setIndex: number) => {
     const set = exercise.sets[setIndex];
@@ -82,131 +101,154 @@ export default function ExerciseLogger({
 
   const handleRestComplete = () => {
     setShowRestTimer(false);
+    setActiveSetIndex(null);
     
     // Auto-focus next incomplete set
     const nextIncompleteIndex = exercise.sets.findIndex(s => !s.completed);
     if (nextIncompleteIndex !== -1) {
-      setActiveSetIndex(nextIncompleteIndex);
+      // Could auto-open coaching for next set here if desired
+      // handleStartSet(nextIncompleteIndex);
     }
   };
 
   return (
-    <div className="space-y-4">
-      {/* Exercise Info Card */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-1">{exercise.exercise.name}</h2>
-            <div className="flex items-center gap-3 text-sm text-gray-600">
-              <span className="capitalize">{exercise.exercise.category}</span>
-              <span>•</span>
-              <span className="capitalize">{exercise.exercise.equipment}</span>
-              {exercise.exercise.is_compound && (
-                <>
-                  <span>•</span>
-                  <span className="text-purple-600 font-medium">Compound</span>
-                </>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={onRemoveExercise}
-            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-            title="Remove exercise"
-          >
-            <Trash2 className="w-5 h-5" />
-          </button>
-        </div>
+    <>
+      {/* Pre-Set Coaching Modal */}
+      {showPreSetCoaching && pendingSetIndex !== null && (
+        <PreSetCoaching
+          exerciseName={exercise.exercise.name}
+          setNumber={pendingSetIndex + 1}
+          targetReps={exercise.sets[pendingSetIndex].target_reps}
+          rpeTarget={exercise.sets[pendingSetIndex].rpe}
+          onReady={handleCoachingReady}
+          onSkip={handleCoachingSkip}
+        />
+      )}
 
-        {/* Sets Table */}
-        <div className="space-y-2">
-          <div className="grid grid-cols-12 gap-2 text-sm font-medium text-gray-600 px-2">
-            <div className="col-span-1">Set</div>
-            <div className="col-span-3">Weight (kg)</div>
-            <div className="col-span-3">Target Reps</div>
-            <div className="col-span-3">Actual Reps</div>
-            <div className="col-span-2"></div>
-          </div>
-
-          {exercise.sets.map((set, index) => (
-            <div
-              key={index}
-              className={`grid grid-cols-12 gap-2 p-3 rounded-lg transition-all ${
-                set.completed
-                  ? 'bg-green-50 border border-green-200'
-                  : activeSetIndex === index
-                  ? 'bg-purple-50 border-2 border-purple-500'
-                  : 'bg-gray-50 border border-gray-200'
-              }`}
-            >
-              <div className="col-span-1 flex items-center font-semibold text-gray-700">
-                {set.set_number}
-              </div>
-              
-              <div className="col-span-3">
-                <input
-                  type="number"
-                  value={set.weight || ''}
-                  onChange={(e) => onUpdateSet(index, { weight: parseFloat(e.target.value) || 0 })}
-                  disabled={set.completed}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                  placeholder="0"
-                  step="0.25"
-                  min="0"
-                />
-              </div>
-              
-              <div className="col-span-3">
-                <input
-                  type="number"
-                  value={set.target_reps || ''}
-                  onChange={(e) => onUpdateSet(index, { target_reps: parseInt(e.target.value) || 0 })}
-                  disabled={set.completed}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                  placeholder="0"
-                  min="0"
-                />
-              </div>
-              
-              <div className="col-span-3">
-                <input
-                  type="number"
-                  value={set.actual_reps || ''}
-                  onChange={(e) => onUpdateSet(index, { actual_reps: parseInt(e.target.value) || 0 })}
-                  disabled={set.completed}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                  placeholder="0"
-                  min="0"
-                />
-              </div>
-              
-              <div className="col-span-2 flex items-center">
-                {set.completed ? (
-                  <div className="flex items-center gap-1 text-green-600 font-medium text-sm">
-                    <Check className="w-4 h-4" />
-                    Done
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => handleCompleteSet(index)}
-                    className="w-full bg-purple-600 text-white px-3 py-2 rounded-lg hover:bg-purple-700 transition-colors font-medium text-sm"
-                  >
-                    ✓
-                  </button>
+      <div className="space-y-4">
+        {/* Exercise Info Card */}
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">{exercise.exercise.name}</h2>
+              <div className="flex items-center gap-3 text-sm text-gray-600">
+                <span className="capitalize">{exercise.exercise.category}</span>
+                <span>•</span>
+                <span className="capitalize">{exercise.exercise.equipment}</span>
+                {exercise.exercise.is_compound && (
+                  <>
+                    <span>•</span>
+                    <span className="text-purple-600 font-medium">Compound</span>
+                  </>
                 )}
               </div>
             </div>
-          ))}
-        </div>
+            <button
+              onClick={onRemoveExercise}
+              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              title="Remove exercise"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+          </div>
 
-        {/* Add Set Button */}
-        <button
-          onClick={onAddSet}
-          className="w-full mt-3 py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-purple-500 hover:text-purple-600 hover:bg-purple-50 transition-all flex items-center justify-center gap-2 font-medium"
-        >
-          <Plus className="w-5 h-5" />
-          Add Set
-        </button>
+          {/* Sets Table */}
+          <div className="space-y-2">
+            <div className="grid grid-cols-12 gap-2 text-sm font-medium text-gray-600 px-2">
+              <div className="col-span-1">Set</div>
+              <div className="col-span-3">Weight (kg)</div>
+              <div className="col-span-3">Target Reps</div>
+              <div className="col-span-3">Actual Reps</div>
+              <div className="col-span-2"></div>
+            </div>
+
+            {exercise.sets.map((set, index) => (
+              <div
+                key={index}
+                className={`grid grid-cols-12 gap-2 p-3 rounded-lg transition-all ${
+                  set.completed
+                    ? 'bg-green-50 border border-green-200'
+                    : activeSetIndex === index
+                    ? 'bg-purple-50 border-2 border-purple-500'
+                    : 'bg-gray-50 border border-gray-200'
+                }`}
+              >
+                <div className="col-span-1 flex items-center font-semibold text-gray-700">
+                  {set.set_number}
+                </div>
+                
+                <div className="col-span-3">
+                  <input
+                    type="number"
+                    value={set.weight || ''}
+                    onChange={(e) => onUpdateSet(index, { weight: parseFloat(e.target.value) || 0 })}
+                    disabled={set.completed}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    placeholder="0"
+                    step="0.25"
+                    min="0"
+                  />
+                </div>
+                
+                <div className="col-span-3">
+                  <input
+                    type="number"
+                    value={set.target_reps || ''}
+                    onChange={(e) => onUpdateSet(index, { target_reps: parseInt(e.target.value) || 0 })}
+                    disabled={set.completed}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    placeholder="0"
+                    min="0"
+                  />
+                </div>
+                
+                <div className="col-span-3">
+                  <input
+                    type="number"
+                    value={set.actual_reps || ''}
+                    onChange={(e) => onUpdateSet(index, { actual_reps: parseInt(e.target.value) || 0 })}
+                    disabled={set.completed}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    placeholder="0"
+                    min="0"
+                  />
+                </div>
+                
+                <div className="col-span-2 flex items-center gap-2">
+                  {set.completed ? (
+                    <div className="flex items-center gap-1 text-green-600 font-medium text-sm">
+                      <Check className="w-4 h-4" />
+                      Done
+                    </div>
+                  ) : activeSetIndex === index ? (
+                    <button
+                      onClick={() => handleCompleteSet(index)}
+                      className="w-full bg-purple-600 text-white px-3 py-2 rounded-lg hover:bg-purple-700 transition-colors font-medium text-sm"
+                    >
+                      ✓
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleStartSet(index)}
+                      className="w-full bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
+                    >
+                      Start
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Add Set Button */}
+          <button
+            onClick={onAddSet}
+            className="w-full mt-3 py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-purple-500 hover:text-purple-600 hover:bg-purple-50 transition-all flex items-center justify-center gap-2 font-medium"
+          >
+            <Plus className="w-5 h-5" />
+            Add Set
+          </button>
+        </div>
       </div>
 
       {/* AI Feedback Modal */}
@@ -233,14 +275,16 @@ export default function ExerciseLogger({
         </div>
       )}
 
-      {/* Rest Timer */}
-      {showRestTimer && (
-        <RestTimer
-          duration={restDuration}
+      {/* Enhanced Rest Timer */}
+      {showRestTimer && completedSetIndex !== null && (
+        <EnhancedRestTimer
+          initialSeconds={restDuration}
           onComplete={handleRestComplete}
           onSkip={handleRestComplete}
+          exerciseName={exercise.exercise.name}
+          setNumber={completedSetIndex + 2} // Next set number
         />
       )}
-    </div>
+    </>
   );
 }
