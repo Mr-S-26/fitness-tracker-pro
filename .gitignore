@@ -48,9 +48,3 @@ next-env.d.ts
 
 # OS
 Thumbs.db
-
-# Google Drive system files
-.DS_Store
-desktop.ini
-Icon?
-Thumbs.db
