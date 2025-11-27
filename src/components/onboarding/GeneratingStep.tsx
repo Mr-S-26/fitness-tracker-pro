@@ -4,7 +4,6 @@ import { useEffect, useState, useRef } from 'react';
 import { Brain, CheckCircle, Loader2 } from 'lucide-react';
 import type { OnboardingFormData } from '@/types/database';
 import { generatePersonalizedProgram } from '@/lib/ai/onboarding/program-generator';
-import { calculateNutritionPlan } from '@/lib/nutrition/macro-calculator';
 
 interface GeneratingStepProps {
   formData: OnboardingFormData;
@@ -24,168 +23,100 @@ export default function GeneratingStep({ formData, userId, onComplete }: Generat
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   
-  // ✅ FIX: Use ref to prevent multiple generations
+  // Use ref to prevent multiple generations in React Strict Mode
   const hasGenerated = useRef(false);
 
   useEffect(() => {
-    // ✅ FIX: Prevent duplicate runs
     if (hasGenerated.current) {
-      console.log('⏭️ Generation already completed, skipping...');
       return;
     }
-    
-    hasGenerated.current = true;
-    
+
     const generate = async () => {
+      hasGenerated.current = true;
       try {
-        // ✅ FIX: Validate required fields before generation
-        if (!formData.primary_goal) {
-          setError('Primary goal is required');
-          return;
-        }
+        // Start the generation process
+        console.log('🚀 Starting generation process...');
         
-        if (!formData.training_experience) {
-          setError('Training experience is required');
-          return;
-        }
+        // Call the generator (Program + Nutrition)
+        const { program, nutrition } = await generatePersonalizedProgram(formData, userId);
         
-        if (!formData.available_equipment || formData.available_equipment.length === 0) {
-          setError('Please select at least one equipment option');
-          return;
-        }
+        // Fast-forward the UI steps once data is ready
+        setCurrentStepIndex(GENERATION_STEPS.length - 1);
+        
+        // Small delay to let the user see the "Finalizing" state
+        setTimeout(() => {
+          console.log('✅ Generation complete, passing data to ReviewStep');
+          onComplete(program, nutrition);
+        }, 1000);
 
-        // Simulate step progression
-        for (let i = 0; i < GENERATION_STEPS.length; i++) {
-          setCurrentStepIndex(i);
-          await new Promise(resolve => setTimeout(resolve, GENERATION_STEPS[i].duration));
-        }
-
-        // ✅ Generate program
-        console.log('🏋️ Generating workout program...');
-        let program;
-        try {
-          program = await generatePersonalizedProgram(formData, userId);
-          console.log('✅ Program generated:', program.program_name);
-        } catch (programError) {
-          console.error('❌ Program generation failed:', programError);
-          throw new Error('Failed to generate workout program. Please try again.');
-        }
-        
-        // ✅ Calculate nutrition
-        console.log('🥗 Calculating nutrition plan...');
-        let nutrition;
-        try {
-          nutrition = calculateNutritionPlan(formData);
-          console.log('✅ Nutrition calculated:', nutrition.daily_calories, 'calories');
-        } catch (nutritionError) {
-          console.error('❌ Nutrition calculation failed:', nutritionError);
-          throw new Error('Failed to calculate nutrition plan. Please try again.');
-        }
-
-        // Mark as complete
-        setCurrentStepIndex(GENERATION_STEPS.length);
-        
-        // Wait a bit before proceeding
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        console.log('✅ Calling onComplete with program and nutrition');
-        onComplete(program, nutrition);
-        
       } catch (err) {
-        console.error('❌ Generation error:', err);
-        setError(err instanceof Error ? err.message : 'Failed to generate program. Please try again.');
-        hasGenerated.current = false; // Allow retry on error
+        console.error('❌ Generation failed:', err);
+        setError('Failed to generate program. Please try again.');
+        hasGenerated.current = false;
       }
     };
 
+    // Start the visual progress bar timer independent of the API call
+    const progressInterval = setInterval(() => {
+      setCurrentStepIndex((prev) => {
+        if (prev < GENERATION_STEPS.length - 2) {
+          return prev + 1;
+        }
+        return prev;
+      });
+    }, 2500);
+
     generate();
-    
-    // ✅ FIX: Empty dependency array - only run once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
+    return () => clearInterval(progressInterval);
+  }, [formData, userId, onComplete]);
 
   if (error) {
     return (
-      <div className="bg-white rounded-2xl p-8 shadow-xl">
-        <div className="text-center">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-3xl">❌</span>
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            Oops! Something went wrong
-          </h2>
-          <p className="text-gray-600 mb-6">{error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700"
-          >
-            Try Again
-          </button>
+      <div className="text-center p-8">
+        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <span className="text-2xl">⚠️</span>
         </div>
+        <h3 className="text-xl font-bold text-gray-900 mb-2">Something went wrong</h3>
+        <p className="text-gray-600 mb-6">{error}</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700"
+        >
+          Try Again
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-2xl p-8 shadow-xl">
-      <div className="text-center mb-8">
-        <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full mb-6 animate-pulse">
-          <Brain className="w-10 h-10 text-white" />
+    <div className="max-w-xl mx-auto">
+      <div className="text-center mb-10">
+        <div className="inline-block p-4 bg-purple-100 rounded-full mb-6 animate-pulse">
+          <Brain className="w-12 h-12 text-purple-600" />
         </div>
-        <h2 className="text-3xl font-bold text-gray-900 mb-2">
-          Creating Your Program...
+        <h2 className="text-3xl font-bold text-gray-900 mb-4">
+          Building Your Personal Plan
         </h2>
         <p className="text-gray-600">
-          This takes about 15-20 seconds. Hang tight!
+          I'm analyzing your profile and designing a program that fits your schedule and goals.
         </p>
       </div>
 
-      {/* Profile Summary */}
-      <div className="mb-8 p-6 bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-xl">
-        <h3 className="font-semibold text-gray-900 mb-3">📋 Your Profile Summary</h3>
-        <div className="grid md:grid-cols-2 gap-3 text-sm">
-          <div>
-            <span className="text-gray-600">Goal:</span>
-            <span className="ml-2 font-semibold text-gray-900 capitalize">
-              {formData.primary_goal?.replace('_', ' ')}
-            </span>
-          </div>
-          <div>
-            <span className="text-gray-600">Experience:</span>
-            <span className="ml-2 font-semibold text-gray-900 capitalize">
-              {formData.training_experience?.replace('_', ' ')}
-            </span>
-          </div>
-          <div>
-            <span className="text-gray-600">Schedule:</span>
-            <span className="ml-2 font-semibold text-gray-900">
-              {formData.available_days_per_week} days/week
-            </span>
-          </div>
-          <div>
-            <span className="text-gray-600">Equipment:</span>
-            <span className="ml-2 font-semibold text-gray-900">
-              {formData.available_equipment?.length || 0} items
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Progress Steps */}
-      <div className="space-y-3">
+      <div className="space-y-4">
         {GENERATION_STEPS.map((step, index) => {
           const isComplete = index < currentStepIndex;
           const isCurrent = index === currentStepIndex;
-
+          
           return (
-            <div
+            <div 
               key={index}
-              className={`flex items-center gap-3 p-4 rounded-lg transition-all ${
-                isComplete
-                  ? 'bg-green-50 border-2 border-green-200'
-                  : isCurrent
-                  ? 'bg-purple-50 border-2 border-purple-300 scale-105'
-                  : 'bg-gray-50 border-2 border-gray-200'
+              className={`flex items-center gap-4 p-4 rounded-xl transition-all duration-500 ${
+                isComplete 
+                  ? 'bg-green-50 border-2 border-green-200' 
+                  : isCurrent 
+                  ? 'bg-purple-50 border-2 border-purple-300 scale-105 shadow-md' 
+                  : 'bg-gray-50 border-2 border-gray-100 opacity-50'
               }`}
             >
               <div className="flex-shrink-0">
@@ -197,29 +128,14 @@ export default function GeneratingStep({ formData, userId, onComplete }: Generat
                   <div className="w-6 h-6 bg-gray-300 rounded-full" />
                 )}
               </div>
-              <span
-                className={`text-sm font-medium ${
-                  isComplete
-                    ? 'text-green-900'
-                    : isCurrent
-                    ? 'text-purple-900'
-                    : 'text-gray-500'
-                }`}
-              >
+              <span className={`font-medium ${
+                isComplete ? 'text-green-900' : isCurrent ? 'text-purple-900' : 'text-gray-500'
+              }`}>
                 {step.label}
               </span>
             </div>
           );
         })}
-      </div>
-
-      {/* Fun Facts */}
-      <div className="mt-8 p-4 bg-blue-50 border-2 border-blue-200 rounded-xl">
-        <h4 className="font-semibold text-blue-900 text-sm mb-2">💡 Did you know?</h4>
-        <p className="text-xs text-blue-800">
-          I'm analyzing thousands of exercise combinations to find the perfect match for your equipment and goals. 
-          Your program will be completely unique to you!
-        </p>
       </div>
     </div>
   );

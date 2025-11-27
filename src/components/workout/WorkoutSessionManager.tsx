@@ -1,389 +1,305 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
-import { Play, Save, X, Plus, Clock, TrendingUp, Dumbbell } from 'lucide-react';
-import ExerciseSelector from './ExerciseSelector';
-import ExerciseLogger from './ExerciseLogger';
-import WorkoutSummary from './WorkoutSummary';
+import { 
+  Dumbbell, Clock, CheckCircle2, AlertTriangle, ChevronLeft, MoreVertical, Brain 
+} from 'lucide-react';
+import EnhancedRestTimer from './EnhancedRestTimer';
+import AISetFeedback from '@/components/coaching/AISetFeedback';
+import PreSetCoaching from '@/components/coaching/PreSetCoaching'; // ✅ Import Pre-Set Coach
+import { logSetResult } from '@/app/actions/workout';
+import { finishWorkoutSession } from '@/app/actions/finish-workout';
 
-interface Exercise {
-  id: string;
-  name: string;
-  category: string;
-  equipment: string;
-  primary_muscles: string[];
-  is_compound: boolean;
+interface Props {
+  userProfile: any;
+  programData: any;
 }
 
-interface SelectedExercise {
-  exercise: Exercise;
-  sets: Array<{
-    set_number: number;
-    weight: number;
-    target_reps: number;
-    actual_reps: number;
-    difficulty?: string;
-    form?: string;
-    rpe?: number;
-    completed: boolean;
-  }>;
-}
-
-interface WorkoutSessionManagerProps {
-  userId: string;
-  exercises: Exercise[];
-}
-
-export default function WorkoutSessionManager({ userId, exercises }: WorkoutSessionManagerProps) {
+export default function WorkoutSessionManager({ userProfile, programData }: Props) {
   const router = useRouter();
-  const supabase = createClient();
+  const [loading, setLoading] = useState(true);
+  const [adjustmentReason, setAdjustmentReason] = useState<string | null>(null);
+  const [activeWorkout, setActiveWorkout] = useState<any>(null);
   
-  const [workoutStarted, setWorkoutStarted] = useState(false);
-  const [workoutName, setWorkoutName] = useState('');
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [selectedExercises, setSelectedExercises] = useState<SelectedExercise[]>([]);
-  const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
-  const [showExerciseSelector, setShowExerciseSelector] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
-  const [startTime, setStartTime] = useState<Date | null>(null);
+  const [showTimer, setShowTimer] = useState(false);
+  const [currentRestTime, setCurrentRestTime] = useState(60);
 
-  // Start workout session
-  const handleStartWorkout = async () => {
-    const name = workoutName || `Workout - ${new Date().toLocaleDateString()}`;
-    
-    try {
-      const { data, error } = await supabase
-        .from('workout_sessions')
-        .insert({
-          user_id: userId,
-          name: name,
-          started_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
+  // Modal States
+  const [feedbackModal, setFeedbackModal] = useState<{
+    isOpen: boolean;
+    exerciseName: string;
+    setNumber: number;
+    targetWeight: number;
+    targetReps: string;
+    restSeconds: number;
+  } | null>(null);
 
-      if (error) throw error;
+  // ✅ NEW: Coaching Modal State
+  const [coachingModal, setCoachingModal] = useState<{
+    isOpen: boolean;
+    exerciseName: string;
+    setNumber: number;
+    targetReps: number;
+  } | null>(null);
 
-      setSessionId(data.id);
-      setWorkoutStarted(true);
-      setStartTime(new Date());
-      setShowExerciseSelector(true);
-    } catch (error) {
-      console.error('Error starting workout:', error);
-      alert('Failed to start workout');
-    }
-  };
+  useEffect(() => {
+    const initSession = () => {
+      const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+      // In a real app, calculate current week dynamically
+      const week1 = programData.weeks.find((w: any) => w.week_number === 1);
+      const scheduledWorkout = week1?.workouts.find((w: any) => w.day === today);
 
-  // Add exercise to workout
-  const handleAddExercise = (exercise: Exercise) => {
-    const newExercise: SelectedExercise = {
-      exercise,
-      sets: [
-        {
-          set_number: 1,
-          weight: 0,
-          target_reps: 8,
-          actual_reps: 0,
-          completed: false,
-        },
-      ],
-    };
-    setSelectedExercises([...selectedExercises, newExercise]);
-    setShowExerciseSelector(false);
-  };
+      if (!scheduledWorkout) {
+        setLoading(false);
+        return;
+      }
 
-  // Remove exercise from workout
-  const handleRemoveExercise = (index: number) => {
-    const updated = selectedExercises.filter((_, i) => i !== index);
-    setSelectedExercises(updated);
-    if (currentExerciseIndex >= updated.length && updated.length > 0) {
-      setCurrentExerciseIndex(updated.length - 1);
-    }
-  };
-
-  // Add set to current exercise
-  const handleAddSet = () => {
-    if (selectedExercises.length === 0) return;
-    
-    const updated = [...selectedExercises];
-    const currentExercise = updated[currentExerciseIndex];
-    const lastSet = currentExercise.sets[currentExercise.sets.length - 1];
-    
-    currentExercise.sets.push({
-      set_number: currentExercise.sets.length + 1,
-      weight: lastSet.weight,
-      target_reps: lastSet.target_reps,
-      actual_reps: 0,
-      completed: false,
-    });
-    
-    setSelectedExercises(updated);
-  };
-
-  // Update set data
-  const handleUpdateSet = (exerciseIndex: number, setIndex: number, updates: Partial<SelectedExercise['sets'][0]>) => {
-    const updated = [...selectedExercises];
-    updated[exerciseIndex].sets[setIndex] = {
-      ...updated[exerciseIndex].sets[setIndex],
-      ...updates,
-    };
-    setSelectedExercises(updated);
-  };
-
-  // Complete workout
-  const handleCompleteWorkout = async () => {
-    if (!sessionId) return;
-
-    try {
-      // Calculate total volume
-      let totalVolume = 0;
-      let totalSets = 0;
-
-      for (const exercise of selectedExercises) {
-        for (const set of exercise.sets) {
-          if (set.completed) {
-            totalVolume += set.weight * set.actual_reps;
-            totalSets++;
-
-            // Save set to database
-            await supabase.from('set_logs').insert({
-              session_id: sessionId,
-              exercise_id: exercise.exercise.id,
-              set_number: set.set_number,
-              weight: set.weight,
-              target_reps: set.target_reps,
-              actual_reps: set.actual_reps,
-              difficulty: set.difficulty,
-              form: set.form,
-              rpe: set.rpe,
-            });
-          }
+      let finalWorkout = { ...scheduledWorkout };
+      const readinessData = localStorage.getItem('workoutReadiness');
+      
+      if (readinessData) {
+        const { score } = JSON.parse(readinessData);
+        if (score < 50) {
+          setAdjustmentReason("Coach Note: Readiness is low. I've reduced weight by 10% and removed 1 set per exercise to prioritize recovery.");
+          finalWorkout.exercises = finalWorkout.exercises.map((ex: any) => ({
+            ...ex,
+            sets: Math.max(1, ex.sets - 1),
+            notes: `${ex.notes || ''} (Deloaded)`.trim()
+          }));
         }
       }
 
-      // Update workout session
-      await supabase
-        .from('workout_sessions')
-        .update({
-          completed_at: new Date().toISOString(),
-          total_volume: totalVolume,
-        })
-        .eq('id', sessionId);
+      setActiveWorkout(finalWorkout);
+      setLoading(false);
+    };
 
-      setShowSummary(true);
-    } catch (error) {
-      console.error('Error completing workout:', error);
-      alert('Failed to save workout');
-    }
+    initSession();
+  }, [programData]);
+
+  // Handle Opening Feedback
+  const handleSetClick = (exerciseName: string, setNumber: number, reps: string, rest: number) => {
+    setFeedbackModal({
+      isOpen: true,
+      exerciseName,
+      setNumber,
+      targetWeight: 0,
+      targetReps: reps,
+      restSeconds: rest
+    });
   };
 
-  // Cancel workout
-  const handleCancelWorkout = async () => {
-    if (!sessionId) {
-      router.push('/dashboard');
-      return;
-    }
+  // Handle Saving Feedback
+  const handleFeedbackSave = async (data: any) => {
+    if (!feedbackModal) return;
+    setFeedbackModal(null);
+    setCurrentRestTime(feedbackModal.restSeconds);
+    setShowTimer(true);
 
-    if (confirm('Are you sure you want to cancel this workout? All progress will be lost.')) {
-      try {
-        await supabase.from('workout_sessions').delete().eq('id', sessionId);
-        router.push('/dashboard');
-      } catch (error) {
-        console.error('Error canceling workout:', error);
-        router.push('/dashboard');
-      }
-    }
+    logSetResult(
+      null, 
+      feedbackModal.exerciseName,
+      feedbackModal.setNumber,
+      data
+    ).catch(err => console.error('Failed to log set', err));
   };
 
-  // Calculate stats
-  const completedSets = selectedExercises.reduce(
-    (acc, ex) => acc + ex.sets.filter(s => s.completed).length,
-    0
-  );
-  const totalSets = selectedExercises.reduce((acc, ex) => acc + ex.sets.length, 0);
-  const totalVolume = selectedExercises.reduce(
-    (acc, ex) =>
-      acc +
-      ex.sets
-        .filter(s => s.completed)
-        .reduce((sum, s) => sum + s.weight * s.actual_reps, 0),
-    0
-  );
+  // ✅ NEW: Handle Opening Coach
+  const handleCoachClick = (exerciseName: string, targetReps: string) => {
+    // Parse reps string "8-10" to number 8 for simplicity, or 10
+    const reps = parseInt(targetReps) || 8; 
+    
+    setCoachingModal({
+      isOpen: true,
+      exerciseName,
+      setNumber: 1, // Default to set 1 cues, or calculate next open set
+      targetReps: reps
+    });
+  };
 
-  // Show summary
-  if (showSummary && sessionId) {
-    return (
-      <WorkoutSummary
-        sessionId={sessionId}
-        exercises={selectedExercises}
-        totalVolume={totalVolume}
-        duration={startTime ? Math.floor((new Date().getTime() - startTime.getTime()) / 1000 / 60) : 0}
-        onClose={() => router.push('/dashboard')}
-      />
-    );
-  }
+  if (loading) return <div>Loading...</div>;
+  if (!activeWorkout) return <div>Rest Day</div>;
 
-  // Pre-workout screen
-  if (!workoutStarted) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8">
-          <div className="text-center mb-6">
-            <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full mx-auto mb-4 flex items-center justify-center">
-              <Dumbbell className="w-10 h-10 text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Start Workout</h1>
-            <p className="text-gray-600">Let&apos;s crush it today! 💪</p>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Workout Name (Optional)
-              </label>
-              <input
-                type="text"
-                value={workoutName}
-                onChange={(e) => setWorkoutName(e.target.value)}
-                placeholder="e.g., Push Day, Leg Day"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-              />
-            </div>
-
-            <button
-              onClick={handleStartWorkout}
-              className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white py-4 px-6 rounded-lg font-semibold text-lg hover:from-purple-700 hover:to-blue-700 transition-all flex items-center justify-center gap-2"
-            >
-              <Play className="w-6 h-6" />
-              Start Workout
-            </button>
-
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="w-full bg-gray-200 text-gray-700 py-3 px-6 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Active workout screen
   return (
-    <div className="min-h-screen pb-20">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 sticky top-0 z-10 shadow-lg">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">{workoutName || 'Active Workout'}</h1>
-            <div className="flex items-center gap-4 text-sm text-purple-100 mt-1">
-              <span className="flex items-center gap-1">
-                <Clock className="w-4 h-4" />
-                {startTime && Math.floor((new Date().getTime() - startTime.getTime()) / 1000 / 60)}m
-              </span>
-              <span>{completedSets}/{totalSets} sets</span>
-              <span className="flex items-center gap-1">
-                <TrendingUp className="w-4 h-4" />
-                {totalVolume.toFixed(0)}kg
-              </span>
-            </div>
-          </div>
-          <button
-            onClick={handleCancelWorkout}
-            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-          >
-            <X className="w-6 h-6" />
+    <div className="min-h-screen bg-gray-50 pb-32">
+      
+      {/* Top Bar */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
+          <button onClick={() => router.back()} className="p-2 -ml-2 hover:bg-gray-100 rounded-full">
+            <ChevronLeft className="w-6 h-6 text-gray-600" />
+          </button>
+          <h1 className="font-bold text-gray-900 truncate">{activeWorkout.workout_name}</h1>
+          <button className="p-2 -mr-2 hover:bg-gray-100 rounded-full">
+            <MoreVertical className="w-6 h-6 text-gray-600" />
           </button>
         </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="max-w-4xl mx-auto p-4">
-        {selectedExercises.length === 0 ? (
-          <div className="text-center py-20">
-            <Dumbbell className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-gray-700 mb-2">No Exercises Yet</h2>
-            <p className="text-gray-500 mb-6">Add your first exercise to get started</p>
-            <button
-              onClick={() => setShowExerciseSelector(true)}
-              className="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700 transition-colors inline-flex items-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              Add Exercise
-            </button>
-          </div>
-        ) : (
-          <>
-            {/* Exercise Tabs */}
-            <div className="flex gap-2 overflow-x-auto mb-4 pb-2">
-              {selectedExercises.map((ex, index) => (
-                <button
-                  key={index}
-                  onClick={() => setCurrentExerciseIndex(index)}
-                  className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-colors ${
-                    currentExerciseIndex === index
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-white text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  {ex.exercise.name}
-                  <span className="ml-2 text-xs">
-                    {ex.sets.filter(s => s.completed).length}/{ex.sets.length}
-                  </span>
-                </button>
-              ))}
-              <button
-                onClick={() => setShowExerciseSelector(true)}
-                className="px-4 py-2 rounded-lg font-medium bg-white text-purple-600 hover:bg-purple-50 transition-colors flex items-center gap-1"
-              >
-                <Plus className="w-4 h-4" />
-                Add
-              </button>
-            </div>
-
-            {/* Current Exercise Logger */}
-            {selectedExercises[currentExerciseIndex] && (
-              <ExerciseLogger
-                exercise={selectedExercises[currentExerciseIndex]}
-                onUpdateSet={(setIndex, updates) =>
-                  handleUpdateSet(currentExerciseIndex, setIndex, updates)
-                }
-                onAddSet={handleAddSet}
-                onRemoveExercise={() => handleRemoveExercise(currentExerciseIndex)}
-              />
-            )}
-          </>
-        )}
-
-        {/* Action Buttons */}
-        {selectedExercises.length > 0 && (
-          <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg">
-            <div className="max-w-4xl mx-auto flex gap-3">
-              <button
-                onClick={handleCompleteWorkout}
-                disabled={completedSets === 0}
-                className="flex-1 bg-green-600 text-white py-4 px-6 rounded-lg font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <Save className="w-5 h-5" />
-                Complete Workout ({completedSets} sets)
-              </button>
-            </div>
+        
+        {adjustmentReason && (
+          <div className="bg-blue-50 px-4 py-3 border-t border-blue-100 flex gap-3">
+            <AlertTriangle className="w-5 h-5 text-blue-600 flex-shrink-0" />
+            <p className="text-sm text-blue-800 leading-tight">{adjustmentReason}</p>
           </div>
         )}
       </div>
 
-      {/* Exercise Selector Modal */}
-      {showExerciseSelector && (
-        <ExerciseSelector
-          exercises={exercises}
-          onSelect={handleAddExercise}
-          onClose={() => setShowExerciseSelector(false)}
+      {/* Active Workout Content */}
+      <div className="max-w-2xl mx-auto p-4 space-y-6">
+        {activeWorkout.exercises.map((exercise: any, index: number) => (
+          <ExerciseCard 
+            key={index} 
+            exercise={exercise} 
+            index={index} 
+            onSetClick={handleSetClick}
+            onCoachClick={() => handleCoachClick(exercise.exercise_name, exercise.reps)} // ✅ Pass Coach Handler
+          />
+        ))}
+
+        <button 
+          onClick={() => {
+            const totalSets = activeWorkout.exercises.reduce((acc: number, ex: any) => acc + ex.sets, 0);
+            const volume = 5000; 
+            const duration = 3600;
+            finishWorkoutSession(null, duration, volume, totalSets);
+          }}
+          className="w-full bg-green-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+        >
+          <CheckCircle2 className="w-6 h-6" />
+          Complete Workout
+        </button>
+      </div>
+
+      {/* ✅ Render Pre-Set Coaching Modal */}
+      {coachingModal && (
+        <PreSetCoaching 
+          exerciseName={coachingModal.exerciseName}
+          setNumber={coachingModal.setNumber}
+          targetReps={coachingModal.targetReps}
+          onReady={() => setCoachingModal(null)}
+          onSkip={() => setCoachingModal(null)}
         />
       )}
+
+      {/* Render Feedback Modal */}
+      {feedbackModal && (
+        <AISetFeedback 
+          exerciseName={feedbackModal.exerciseName}
+          setNumber={feedbackModal.setNumber}
+          targetWeight={feedbackModal.targetWeight}
+          targetReps={feedbackModal.targetReps}
+          onSave={handleFeedbackSave}
+          onCancel={() => setFeedbackModal(null)}
+        />
+      )}
+
+      {/* Render Timer Overlay */}
+      {showTimer && (
+        <EnhancedRestTimer 
+          initialSeconds={currentRestTime} 
+          onComplete={() => setShowTimer(false)}
+          onClose={() => setShowTimer(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Updated ExerciseCard to include Coach Button
+function ExerciseCard({ 
+  exercise, 
+  index, 
+  onSetClick, 
+  onCoachClick 
+}: { 
+  exercise: any, 
+  index: number, 
+  onSetClick: (name: string, set: number, reps: string, rest: number) => void,
+  onCoachClick: () => void 
+}) {
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      {/* Header */}
+      <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-start">
+        <div className="flex-1">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Exercise {index + 1}</span>
+            {/* ✅ Coach Button */}
+            <button 
+              onClick={onCoachClick}
+              className="flex items-center gap-1 bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded-lg text-xs font-bold transition-colors"
+            >
+              <Brain className="w-3 h-3" />
+              Coach Me
+            </button>
+          </div>
+          <h3 className="text-lg font-bold text-gray-900">{exercise.exercise_name}</h3>
+          
+          {exercise.notes && (
+            <p className="text-xs text-purple-600 mt-1 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" /> {exercise.notes}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-10 gap-2 p-2 bg-gray-100/50 text-xs font-semibold text-gray-500 text-center border-b border-gray-100">
+        <div className="col-span-1">SET</div>
+        <div className="col-span-3">PREVIOUS</div>
+        <div className="col-span-2">KG</div>
+        <div className="col-span-2">REPS</div>
+        <div className="col-span-2">DONE</div>
+      </div>
+
+      <div className="divide-y divide-gray-100">
+        {Array.from({ length: exercise.sets }).map((_, i) => (
+          <SetRow 
+            key={i} 
+            setNumber={i + 1} 
+            targetReps={exercise.reps}
+            onTrigger={() => onSetClick(exercise.exercise_name, i + 1, exercise.reps, exercise.rest_seconds)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SetRow({ setNumber, targetReps, onTrigger }: { setNumber: number, targetReps: string, onTrigger: () => void }) {
+  const [completed, setCompleted] = useState(false);
+
+  const handleToggle = () => {
+    if (!completed) {
+      onTrigger();
+      setCompleted(true);
+    } else {
+      setCompleted(false);
+    }
+  };
+
+  return (
+    <div className={`grid grid-cols-10 gap-2 p-3 items-center transition-colors ${completed ? 'bg-green-50' : 'bg-white'}`}>
+      <div className="col-span-1 flex justify-center">
+        <span className="w-6 h-6 flex items-center justify-center bg-gray-100 rounded-full text-xs font-bold text-gray-500">
+          {setNumber}
+        </span>
+      </div>
+      <div className="col-span-3 text-center text-xs text-gray-400">-</div>
+      <div className="col-span-2">
+        <input type="number" placeholder="0" className="w-full text-center bg-gray-50 border border-gray-200 rounded p-1 text-sm font-semibold focus:outline-none" />
+      </div>
+      <div className="col-span-2">
+        <input type="text" placeholder={targetReps} className="w-full text-center bg-gray-50 border border-gray-200 rounded p-1 text-sm font-semibold focus:outline-none" />
+      </div>
+      <div className="col-span-2 flex justify-center">
+        <button 
+          onClick={handleToggle}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+            completed ? 'bg-green-500 text-white shadow-md' : 'bg-gray-200 text-gray-400 hover:bg-gray-300'
+          }`}
+        >
+          <CheckCircle2 className="w-5 h-5" />
+        </button>
+      </div>
     </div>
   );
 }

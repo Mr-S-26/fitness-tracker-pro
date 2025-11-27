@@ -361,3 +361,27 @@ export interface OnboardingFormData {
   motivation_type: MotivationType; // Remove the '?' to make it required
   wants_voice_coaching: boolean;
 }
+
+export interface BodyMeasurement {
+  id: string;
+  user_id: string;
+  measured_at: string;
+  weight_kg?: number;
+  body_fat_percentage?: number;
+  neck_cm?: number;
+  shoulders_cm?: number;
+  chest_cm?: number;
+  waist_cm?: number;
+  hips_cm?: number;
+  bicep_left_cm?: number;
+  bicep_right_cm?: number;
+  forearm_left_cm?: number;
+  forearm_right_cm?: number;
+  thigh_left_cm?: number;
+  thigh_right_cm?: number;
+  calf_left_cm?: number;
+  calf_right_cm?: number;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
