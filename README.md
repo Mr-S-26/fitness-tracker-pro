@@ -296,6 +296,6 @@ If this project helped you, give it a ⭐️!
 
 ---
 
-**Built with ❤️ by [Your Name]**
+**Built with ❤️ by Michael**
 
 *Making AI-powered fitness coaching accessible to everyone, completely free.*
