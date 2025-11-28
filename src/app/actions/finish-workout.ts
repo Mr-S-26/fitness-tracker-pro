@@ -14,19 +14,43 @@ export async function finishWorkoutSession(
 
   if (!user) throw new Error('Unauthorized');
 
-  // 1. Update (or Create) the Session entry
-  // In a real app, you'd update the existing session row.
-  // For this MVP, we'll simulate a successful save.
-  
-  console.log('✅ Workout Finished:', {
-    user: user.email,
-    duration: durationSeconds,
-    volume: totalVolume,
-    sets: totalSets
-  });
+  const today = new Date().toISOString().split('T')[0];
 
-  // 2. Redirect to the Summary Page
-  // Pass stats via query params for simplicity (or fetch ID in real app)
+  // 1. Identify the Session to Update
+  let targetSessionId = sessionId;
+
+  // If frontend didn't pass ID, try to find today's latest session
+  if (!targetSessionId) {
+    const { data: existingLog } = await supabase
+      .from('workout_logs')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('date', today)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+      
+    targetSessionId = existingLog?.id;
+  }
+
+  // 2. Update the Session
+  if (targetSessionId) {
+    await supabase
+      .from('workout_logs')
+      .update({
+        duration_seconds: durationSeconds,
+        total_volume_kg: totalVolume,
+        total_sets: totalSets,
+        // We could also calculate volume here by summing exercise_sets if we wanted to be 100% accurate
+      })
+      .eq('id', targetSessionId);
+  } else {
+    // Edge case: User finished workout without logging any sets? 
+    // Create a ghost log or just ignore.
+    console.warn('No session found to finish');
+  }
+
+  // 3. Redirect
   const params = new URLSearchParams({
     duration: durationSeconds.toString(),
     volume: totalVolume.toString(),

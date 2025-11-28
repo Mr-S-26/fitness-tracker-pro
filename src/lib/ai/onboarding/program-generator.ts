@@ -1,4 +1,5 @@
 import type { OnboardingFormData } from '@/types/database';
+// import { getAICoach } from '@/lib/ai/fitness-coach-system'; // Keep commented if not using AI yet
 import { calculateNutritionPlan } from '@/lib/nutrition/macro-calculator';
 
 // Define the structure of the workout program
@@ -26,10 +27,10 @@ export interface WorkoutProgram {
   deload_strategy: string;
 }
 
-// ✅ NEW: Combined return type for the UI
+// Combined return type for the UI
 export interface GeneratedPlan {
   program: WorkoutProgram;
-  nutrition: any; // Typed as 'any' or Partial<NutritionPlan>
+  nutrition: any;
 }
 
 /**
@@ -58,7 +59,7 @@ export async function generatePersonalizedProgram(
 
 /**
  * Rule-based program generator
- * (This contains your existing logic for creating workouts)
+ * HIGH-QUALITY programs based on proven training principles
  */
 function generateFallbackProgram(formData: OnboardingFormData): WorkoutProgram {
   console.log('🛠️ Building evidence-based program...');
@@ -95,7 +96,7 @@ function generateFallbackProgram(formData: OnboardingFormData): WorkoutProgram {
     exercises = getMixedEquipmentExercises(formData);
   }
 
-  // Build 12 weeks
+  // Build 12 weeks with proper periodization
   const weeks = [];
   for (let weekNum = 1; weekNum <= 12; weekNum++) {
     let focus = '';
@@ -135,19 +136,25 @@ function capitalizeGoal(goal: string): string {
 
 function getBodyweightExercises(goal: any, experience: string) {
   return [
-    { name: 'Push-ups', sets: 3, reps: '8-12', rest: 60 },
-    { name: 'Squats', sets: 3, reps: '15-20', rest: 60 },
-    { name: 'Lunges', sets: 3, reps: '12 each', rest: 60 },
+    { name: 'Push-ups', sets: 3, reps: '10-15', rest: 60 },
+    { name: 'Bodyweight Squats', sets: 3, reps: '15-20', rest: 60 },
+    { name: 'Walking Lunges', sets: 3, reps: '12 each', rest: 60 },
     { name: 'Plank', sets: 3, reps: '45s', rest: 60 },
+    { name: 'Glute Bridges', sets: 3, reps: '15', rest: 60 },
+    { name: 'Mountain Climbers', sets: 3, reps: '30s', rest: 45 },
+    { name: 'Burpees', sets: 3, reps: '10', rest: 90 },
   ];
 }
 
 function getFullGymExercises(goal: any, experience: string) {
   return [
     { name: 'Barbell Squat', sets: 4, reps: '6-8', rest: 180 },
-    { name: 'Bench Press', sets: 4, reps: '6-8', rest: 180 },
-    { name: 'Deadlift', sets: 3, reps: '5', rest: 240 },
+    { name: 'Barbell Bench Press', sets: 4, reps: '6-8', rest: 180 },
+    { name: 'Barbell Deadlift', sets: 3, reps: '5', rest: 240 },
     { name: 'Overhead Press', sets: 3, reps: '8-10', rest: 120 },
+    { name: 'Barbell Row', sets: 3, reps: '8-10', rest: 120 },
+    { name: 'Romanian Deadlift', sets: 3, reps: '10-12', rest: 120 },
+    { name: 'Incline Bench Press', sets: 3, reps: '8-10', rest: 90 },
   ];
 }
 
@@ -156,7 +163,11 @@ function getDumbbellExercises(goal: any, experience: string) {
     { name: 'Goblet Squat', sets: 3, reps: '10-12', rest: 90 },
     { name: 'DB Bench Press', sets: 3, reps: '10-12', rest: 90 },
     { name: 'DB Row', sets: 3, reps: '10-12', rest: 90 },
+    { name: 'DB Shoulder Press', sets: 3, reps: '10-12', rest: 90 },
     { name: 'DB Lunges', sets: 3, reps: '12 each', rest: 60 },
+    { name: 'DB RDL', sets: 3, reps: '10-12', rest: 90 },
+    { name: 'DB Curl', sets: 3, reps: '12-15', rest: 60 },
+    { name: 'DB Tricep Extension', sets: 3, reps: '12-15', rest: 60 },
   ];
 }
 
@@ -165,26 +176,62 @@ function getMixedEquipmentExercises(formData: any) {
     { name: 'Squat Variation', sets: 3, reps: '10-15', rest: 90 },
     { name: 'Push Variation', sets: 3, reps: '10-15', rest: 90 },
     { name: 'Pull Variation', sets: 3, reps: '10-15', rest: 90 },
-    { name: 'Core', sets: 3, reps: '15', rest: 60 },
+    { name: 'Hinge Movement', sets: 3, reps: '10-12', rest: 90 },
+    { name: 'Core Stability', sets: 3, reps: '15', rest: 60 },
+    { name: 'Carry/Locomotion', sets: 3, reps: '30s', rest: 60 },
   ];
 }
 
+/**
+ * ✅ FIXED: Robust Workout Builder with Rotation Logic
+ * This ensures we never run out of exercises, even for 7 days/week
+ */
 function buildWeekWorkouts(days: number, exercises: any[], isDeload: boolean, week: number) {
   const workouts = [];
-  const daysOfWeek = ['Monday', 'Wednesday', 'Friday', 'Saturday', 'Sunday'].slice(0, days);
+  
+  // Define explicit days mapping to handle 3, 4, 5, 6, 7 day splits correctly
+  let dayNames: string[] = [];
+  
+  if (days === 1) dayNames = ['Monday'];
+  else if (days === 2) dayNames = ['Monday', 'Thursday'];
+  else if (days === 3) dayNames = ['Monday', 'Wednesday', 'Friday'];
+  else if (days === 4) dayNames = ['Monday', 'Tuesday', 'Thursday', 'Friday'];
+  else if (days === 5) dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Friday', 'Saturday'];
+  else if (days === 6) dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  else dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']; // 7 Days
 
   for (let i = 0; i < days; i++) {
+    // 🔄 ROTATION LOGIC: Use modulo (%) to cycle through exercises endlessly
+    // Start index shifts by 2 each day to give variety
+    const startIndex = (i * 2) % exercises.length;
+    
+    // Select 4-5 exercises per workout
+    const dayExercisesRaw = [];
+    for(let j = 0; j < 5; j++) {
+      const exIndex = (startIndex + j) % exercises.length;
+      dayExercisesRaw.push(exercises[exIndex]);
+    }
+
+    // Map to final format
+    const dayExercises = dayExercisesRaw.map(ex => ({
+      exercise_name: ex.name,
+      sets: isDeload ? Math.max(1, Math.ceil(ex.sets / 2)) : ex.sets,
+      reps: ex.reps,
+      rest_seconds: ex.rest,
+      notes: isDeload ? 'Deload: Focus on form' : ''
+    }));
+
     workouts.push({
-      day: daysOfWeek[i] || `Day ${i + 1}`,
-      workout_name: `Full Body ${String.fromCharCode(65 + i)}`,
-      exercises: exercises.map(ex => ({
-        exercise_name: ex.name,
-        sets: isDeload ? Math.max(1, Math.ceil(ex.sets / 2)) : ex.sets,
-        reps: ex.reps,
-        rest_seconds: ex.rest,
-        notes: isDeload ? 'Deload: Focus on form' : ''
-      }))
+      day: dayNames[i],
+      workout_name: getWorkoutName(days, i),
+      exercises: dayExercises
     });
   }
   return workouts;
+}
+
+function getWorkoutName(totalDays: number, dayIndex: number): string {
+  if (totalDays <= 3) return `Full Body ${String.fromCharCode(65 + dayIndex)}`;
+  if (totalDays === 4) return dayIndex % 2 === 0 ? 'Upper Body' : 'Lower Body';
+  return dayIndex % 2 === 0 ? 'Push/Pull' : 'Legs/Core';
 }

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import EnhancedRestTimer from './EnhancedRestTimer';
 import AISetFeedback from '@/components/coaching/AISetFeedback';
-import PreSetCoaching from '@/components/coaching/PreSetCoaching'; // ✅ Import Pre-Set Coach
+import PreSetCoaching from '@/components/coaching/PreSetCoaching';
 import { logSetResult } from '@/app/actions/workout';
 import { finishWorkoutSession } from '@/app/actions/finish-workout';
 
@@ -35,7 +35,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
     restSeconds: number;
   } | null>(null);
 
-  // ✅ NEW: Coaching Modal State
   const [coachingModal, setCoachingModal] = useState<{
     isOpen: boolean;
     exerciseName: string;
@@ -46,7 +45,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   useEffect(() => {
     const initSession = () => {
       const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-      // In a real app, calculate current week dynamically
       const week1 = programData.weeks.find((w: any) => w.week_number === 1);
       const scheduledWorkout = week1?.workouts.find((w: any) => w.day === today);
 
@@ -77,19 +75,27 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
     initSession();
   }, [programData]);
 
-  // Handle Opening Feedback
-  const handleSetClick = (exerciseName: string, setNumber: number, reps: string, rest: number) => {
+  // ✅ UPDATE: Now accepts actualWeight and actualReps from the input
+  const handleSetClick = (
+    exerciseName: string, 
+    setNumber: number, 
+    targetReps: string, 
+    rest: number,
+    actualWeight: number,
+    actualReps: string
+  ) => {
     setFeedbackModal({
       isOpen: true,
       exerciseName,
       setNumber,
-      targetWeight: 0,
-      targetReps: reps,
+      // Use user input if available, otherwise 0
+      targetWeight: actualWeight || 0, 
+      // Use user input if available, otherwise target
+      targetReps: actualReps || targetReps, 
       restSeconds: rest
     });
   };
 
-  // Handle Saving Feedback
   const handleFeedbackSave = async (data: any) => {
     if (!feedbackModal) return;
     setFeedbackModal(null);
@@ -104,15 +110,12 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
     ).catch(err => console.error('Failed to log set', err));
   };
 
-  // ✅ NEW: Handle Opening Coach
   const handleCoachClick = (exerciseName: string, targetReps: string) => {
-    // Parse reps string "8-10" to number 8 for simplicity, or 10
     const reps = parseInt(targetReps) || 8; 
-    
     setCoachingModal({
       isOpen: true,
       exerciseName,
-      setNumber: 1, // Default to set 1 cues, or calculate next open set
+      setNumber: 1, 
       targetReps: reps
     });
   };
@@ -151,7 +154,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
             exercise={exercise} 
             index={index} 
             onSetClick={handleSetClick}
-            onCoachClick={() => handleCoachClick(exercise.exercise_name, exercise.reps)} // ✅ Pass Coach Handler
+            onCoachClick={() => handleCoachClick(exercise.exercise_name, exercise.reps)}
           />
         ))}
 
@@ -169,7 +172,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
         </button>
       </div>
 
-      {/* ✅ Render Pre-Set Coaching Modal */}
       {coachingModal && (
         <PreSetCoaching 
           exerciseName={coachingModal.exerciseName}
@@ -180,7 +182,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
         />
       )}
 
-      {/* Render Feedback Modal */}
       {feedbackModal && (
         <AISetFeedback 
           exerciseName={feedbackModal.exerciseName}
@@ -192,7 +193,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
         />
       )}
 
-      {/* Render Timer Overlay */}
       {showTimer && (
         <EnhancedRestTimer 
           initialSeconds={currentRestTime} 
@@ -204,7 +204,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   );
 }
 
-// Updated ExerciseCard to include Coach Button
+// ✅ UPDATE: Passed down function signature changed
 function ExerciseCard({ 
   exercise, 
   index, 
@@ -213,7 +213,7 @@ function ExerciseCard({
 }: { 
   exercise: any, 
   index: number, 
-  onSetClick: (name: string, set: number, reps: string, rest: number) => void,
+  onSetClick: (name: string, set: number, targetReps: string, rest: number, actualWeight: number, actualReps: string) => void,
   onCoachClick: () => void 
 }) {
   return (
@@ -223,7 +223,6 @@ function ExerciseCard({
         <div className="flex-1">
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Exercise {index + 1}</span>
-            {/* ✅ Coach Button */}
             <button 
               onClick={onCoachClick}
               className="flex items-center gap-1 bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded-lg text-xs font-bold transition-colors"
@@ -256,7 +255,8 @@ function ExerciseCard({
             key={i} 
             setNumber={i + 1} 
             targetReps={exercise.reps}
-            onTrigger={() => onSetClick(exercise.exercise_name, i + 1, exercise.reps, exercise.rest_seconds)}
+            // ✅ UPDATE: Pass captured values to parent
+            onTrigger={(w, r) => onSetClick(exercise.exercise_name, i + 1, exercise.reps, exercise.rest_seconds, w, r)}
           />
         ))}
       </div>
@@ -264,12 +264,19 @@ function ExerciseCard({
   );
 }
 
-function SetRow({ setNumber, targetReps, onTrigger }: { setNumber: number, targetReps: string, onTrigger: () => void }) {
+// ✅ UPDATE: SetRow now tracks input state
+function SetRow({ setNumber, targetReps, onTrigger }: { setNumber: number, targetReps: string, onTrigger: (w: number, r: string) => void }) {
   const [completed, setCompleted] = useState(false);
+  const [weight, setWeight] = useState('');
+  const [reps, setReps] = useState('');
 
   const handleToggle = () => {
     if (!completed) {
-      onTrigger();
+      // ✅ Send what the user typed!
+      const weightVal = weight ? parseFloat(weight) : 0;
+      const repsVal = reps ? reps : targetReps; // Fallback to target if empty
+      
+      onTrigger(weightVal, repsVal);
       setCompleted(true);
     } else {
       setCompleted(false);
@@ -284,17 +291,36 @@ function SetRow({ setNumber, targetReps, onTrigger }: { setNumber: number, targe
         </span>
       </div>
       <div className="col-span-3 text-center text-xs text-gray-400">-</div>
+      
+      {/* ✅ Controlled Input for Weight */}
       <div className="col-span-2">
-        <input type="number" placeholder="0" className="w-full text-center bg-gray-50 border border-gray-200 rounded p-1 text-sm font-semibold focus:outline-none" />
+        <input 
+          type="number" 
+          placeholder="0" 
+          value={weight}
+          onChange={(e) => setWeight(e.target.value)}
+          className="w-full text-center bg-gray-50 border border-gray-200 rounded p-1 text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+        />
       </div>
+
+      {/* ✅ Controlled Input for Reps */}
       <div className="col-span-2">
-        <input type="text" placeholder={targetReps} className="w-full text-center bg-gray-50 border border-gray-200 rounded p-1 text-sm font-semibold focus:outline-none" />
+        <input 
+          type="text" 
+          placeholder={targetReps} 
+          value={reps}
+          onChange={(e) => setReps(e.target.value)}
+          className="w-full text-center bg-gray-50 border border-gray-200 rounded p-1 text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+        />
       </div>
+
       <div className="col-span-2 flex justify-center">
         <button 
           onClick={handleToggle}
           className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
-            completed ? 'bg-green-500 text-white shadow-md' : 'bg-gray-200 text-gray-400 hover:bg-gray-300'
+            completed 
+              ? 'bg-green-500 text-white shadow-md scale-105' 
+              : 'bg-gray-200 text-gray-400 hover:bg-gray-300'
           }`}
         >
           <CheckCircle2 className="w-5 h-5" />

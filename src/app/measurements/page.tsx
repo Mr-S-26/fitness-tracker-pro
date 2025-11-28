@@ -2,33 +2,20 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import MeasurementsClient from './MeasurementsClient';
 
-export const metadata = {
-  title: 'Body Measurements | FitTracker Pro',
-  description: 'Track your body measurements and progress over time',
-};
-
 export default async function MeasurementsPage() {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  if (!user) redirect('/login');
 
-  if (!user) {
-    redirect('/login');
-  }
-
-  // Fetch user's measurements
-  const { data: measurements } = await supabase
-    .from('body_measurements')
+  // Fetch measurement history
+  const { data: history } = await supabase
+    .from('measurements')
     .select('*')
     .eq('user_id', user.id)
-    .order('measured_at', { ascending: false });
+    .order('date', { ascending: true });
 
   return (
-    <MeasurementsClient
-      userId={user.id}
-      measurements={measurements || []}
-    />
+    <MeasurementsClient history={history || []} />
   );
 }

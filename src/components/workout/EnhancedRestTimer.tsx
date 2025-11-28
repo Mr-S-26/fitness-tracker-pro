@@ -15,18 +15,25 @@ export default function EnhancedRestTimer({ initialSeconds, onComplete, onClose 
   const [isPaused, setIsPaused] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Audio ref for beep sound (optional)
-  // const audioRef = useRef<HTMLAudioElement | null>(null);
-
+  // ✅ FIX 1: Handle completion in a useEffect, not during render or state updates
   useEffect(() => {
-    if (isPaused) return;
+    if (secondsLeft === 0) {
+      // Provide a tiny buffer to ensure UI updates first
+      const timeout = setTimeout(() => {
+        onComplete();
+      }, 500);
+      return () => clearTimeout(timeout);
+    }
+  }, [secondsLeft, onComplete]);
+
+  // ✅ FIX 2: Clean interval logic
+  useEffect(() => {
+    if (isPaused || secondsLeft <= 0) return;
 
     intervalRef.current = setInterval(() => {
       setSecondsLeft((prev) => {
         if (prev <= 1) {
-          clearInterval(intervalRef.current!);
-          onComplete(); // Trigger parent callback
-          return 0;
+          return 0; // Just update state, let the other useEffect handle onComplete
         }
         return prev - 1;
       });
@@ -35,7 +42,7 @@ export default function EnhancedRestTimer({ initialSeconds, onComplete, onClose 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isPaused, onComplete]);
+  }, [isPaused, secondsLeft]);
 
   // Format time as MM:SS
   const formatTime = (secs: number) => {
@@ -48,14 +55,14 @@ export default function EnhancedRestTimer({ initialSeconds, onComplete, onClose 
     setSecondsLeft((prev) => Math.max(0, prev + amount));
   };
 
-  // Minimized Floating View (Picture-in-Picture style)
+  // Minimized Floating View
   if (isMinimized) {
     return (
       <div className="fixed bottom-24 right-4 z-50 animate-slide-up">
         <div className="bg-gray-900 text-white p-3 rounded-full shadow-xl flex items-center gap-3 cursor-pointer border border-gray-700"
              onClick={() => setIsMinimized(false)}>
           <div className="relative w-10 h-10 flex items-center justify-center">
-             {/* Progress Ring (SVG) */}
+             {/* Progress Ring */}
              <svg className="absolute inset-0 w-full h-full -rotate-90">
                <circle cx="20" cy="20" r="18" stroke="currentColor" strokeWidth="3" fill="transparent" className="text-gray-700" />
                <circle cx="20" cy="20" r="18" stroke="#a855f7" strokeWidth="3" fill="transparent" 
@@ -78,8 +85,6 @@ export default function EnhancedRestTimer({ initialSeconds, onComplete, onClose 
   // Full Expanded Modal View
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 flex flex-col justify-end pointer-events-none">
-      {/* Backdrop/Click-away area could go here if needed */}
-      
       <div className="bg-white border-t border-gray-200 shadow-2xl p-6 rounded-t-3xl pointer-events-auto animate-slide-up">
         {/* Header controls */}
         <div className="flex justify-between items-center mb-6">
@@ -125,7 +130,7 @@ export default function EnhancedRestTimer({ initialSeconds, onComplete, onClose 
         </div>
 
         <button 
-          onClick={onClose}
+          onClick={onClose} // Use onClose instead of onComplete for manual skip to avoid loop
           className="w-full py-3 text-purple-600 font-semibold hover:bg-purple-50 rounded-xl transition-colors"
         >
           Skip Rest & Start Set

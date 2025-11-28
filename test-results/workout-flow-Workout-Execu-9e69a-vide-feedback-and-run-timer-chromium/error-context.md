@@ -1,0 +1,57 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]:
+    - img [ref=e8]
+  - alert [ref=e11]
+  - generic [ref=e13]:
+    - generic [ref=e15]:
+      - generic [ref=e16]: Step 2 of 11
+      - generic [ref=e17]: 18% Complete
+    - generic [ref=e21]:
+      - generic [ref=e22]:
+        - heading "What's Your Main Goal?" [level=2] [ref=e23]
+        - paragraph [ref=e24]: This helps me design the right program structure, rep ranges, and progression strategy for you.
+      - generic [ref=e25]:
+        - button "Build Muscle Gain lean muscle mass and size" [ref=e26]:
+          - generic [ref=e27]:
+            - img [ref=e29]
+            - generic [ref=e35]:
+              - heading "Build Muscle" [level=3] [ref=e36]
+              - paragraph [ref=e37]: Gain lean muscle mass and size
+        - button "Get Stronger Increase your lifts and overall strength" [ref=e38]:
+          - generic [ref=e39]:
+            - img [ref=e41]
+            - generic [ref=e43]:
+              - heading "Get Stronger" [level=3] [ref=e44]
+              - paragraph [ref=e45]: Increase your lifts and overall strength
+        - button "Lose Fat Reduce body fat while maintaining muscle" [ref=e46]:
+          - generic [ref=e47]:
+            - img [ref=e49]
+            - generic [ref=e52]:
+              - heading "Lose Fat" [level=3] [ref=e53]
+              - paragraph [ref=e54]: Reduce body fat while maintaining muscle
+        - button "General Fitness Improve overall health and wellness" [ref=e55]:
+          - generic [ref=e56]:
+            - img [ref=e58]
+            - generic [ref=e60]:
+              - heading "General Fitness" [level=3] [ref=e61]
+              - paragraph [ref=e62]: Improve overall health and wellness
+        - button "Athletic Performance Enhance sport-specific performance" [ref=e63]:
+          - generic [ref=e64]:
+            - img [ref=e66]
+            - generic [ref=e70]:
+              - heading "Athletic Performance" [level=3] [ref=e71]
+              - paragraph [ref=e72]: Enhance sport-specific performance
+      - generic [ref=e73]:
+        - generic [ref=e74]:
+          - generic [ref=e75]: Any Specific Goals? (Optional)
+          - textbox "e.g., 'Bench press 100kg by June' or 'Lose 10kg while maintaining strength'" [ref=e76]
+        - generic [ref=e77]:
+          - generic [ref=e78]: Target Date? (Optional)
+          - textbox [ref=e79]
+    - generic [ref=e80]:
+      - button "← Back" [ref=e81]
+      - button "Next →" [disabled] [ref=e82]
+```

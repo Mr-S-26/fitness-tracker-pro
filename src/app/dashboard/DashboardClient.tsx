@@ -170,7 +170,12 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
                <h3 className="font-bold text-gray-900 mb-4">Quick Actions</h3>
                <div className="space-y-2">
-                 <QuickAction label="Log Body Weight" />
+                 <Link href="/measurements" className="w-full">
+  <QuickAction label="Log Body Weight" />
+</Link>
+<Link href="/checkin/weekly" className="w-full">
+  <QuickAction label="Weekly Check-in" />
+</Link>
                  <QuickAction label="Update Goals" />
                  
                  {/* 🔴 Add this Reset Button */}
