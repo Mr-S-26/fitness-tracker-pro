@@ -1,566 +1,149 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Brain,
-  Send,
-  Mic,
-  MicOff,
-  Volume2,
-  VolumeX,
-  Sparkles,
-  Activity,
-  MessageSquare,
-  Dumbbell,
-  Heart,
-  TrendingUp,
-  AlertCircle,
-  CheckCircle,
-  Loader2,
-  User,
-  Bot,
-  Camera,
-  Image as ImageIcon,
-  PlusCircle,
-  ChevronDown
-} from 'lucide-react'
-import { useAIFitnessCoach, QuickCoach } from '@/lib/ai/fitness-coach-system'
-import { format } from 'date-fns'
-
-// =====================================================
-// UTILITY FUNCTION (replaces @/lib/utils)
-// =====================================================
-function cn(...classes: (string | boolean | undefined)[]) {
-  return classes.filter(Boolean).join(' ')
-}
-
-// =====================================================
-// TYPE DEFINITIONS
-// =====================================================
-
-interface MessageMetadata {
-  exerciseName?: string
-  suggestion?: {
-    weight?: number
-    reps?: number
-    rest?: number
-  }
-  warning?: string
-  [key: string]: unknown
-}
+import { useState, useRef, useEffect } from 'react';
+import { Send, User, Bot, Sparkles, ChevronLeft } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 interface Message {
-  id: string
-  role: 'user' | 'coach'
-  content: string
-  timestamp: Date
-  type?: 'text' | 'suggestion' | 'warning' | 'success' | 'form-check' | 'program'
-  metadata?: MessageMetadata  // ✅ Fixed: was 'any'
+  role: 'user' | 'assistant';
+  content: string;
 }
 
-interface CurrentWorkout {
-  id?: string
-  currentExercise?: string
-  phase?: 'warmup' | 'working' | 'cooldown'
-  startedAt?: Date
-}
-
-interface UserStats {
-  fatigue: number
-  motivation: number
-  soreness: number
-}
-
-// =====================================================
-// MAIN COMPONENT
-// =====================================================
-
-export default function AICoachInterface() {
-  const coach = useAIFitnessCoach()
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
-  const [isListening, setIsListening] = useState(false)
-  const [voiceEnabled, setVoiceEnabled] = useState(true)
-  const [showQuickActions, setShowQuickActions] = useState(true)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const [currentWorkout, setCurrentWorkout] = useState<CurrentWorkout | null>(null)  // ✅ Fixed: was 'any'
-  const [userStats, setUserStats] = useState<UserStats>({
-    fatigue: 5,
-    motivation: 7,
-    soreness: 3
-  })
-
-  // Initialize with welcome message
-  useEffect(() => {
-    const welcomeMessage: Message = {
-      id: '1',
-      role: 'coach',
-      content: "Hey! I'm your AI fitness coach. I'm here to help you train smarter, safer, and more effectively. What would you like to work on today?",
-      timestamp: new Date(),
-      type: 'text'
-    }
-    setMessages([welcomeMessage])
-    
-    // Speak welcome if voice enabled
-    if (voiceEnabled) {
-      speak(welcomeMessage.content)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+export default function AICoachInterface({ userName }: { userName: string }) {
+  const router = useRouter();
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([
+    { role: 'assistant', content: `Hey ${userName}! I've analyzed your recent workouts. How can I help you train smarter today?` }
+  ]);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  // Text-to-speech
-  const speak = (text: string) => {
-    if (!voiceEnabled || !('speechSynthesis' in window)) return
-    
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.rate = 1.1
-    utterance.pitch = 0.95
-    utterance.volume = 0.9
-    
-    // Select a good voice if available
-    const voices = speechSynthesis.getVoices()
-    const preferredVoice = voices.find(v => v.name.includes('Google') || v.name.includes('Microsoft'))
-    if (preferredVoice) utterance.voice = preferredVoice
-    
-    speechSynthesis.speak(utterance)
-  }
-
-  // Speech recognition
-  const startListening = () => {
-    if (!('webkitSpeechRecognition' in window)) {
-      alert('Speech recognition not supported in your browser')
-      return
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
+  }, [messages]);
 
-    // ✅ Fixed: Proper typing for speech recognition
-    interface SpeechRecognitionEvent extends Event {
-      results: {
-        [index: number]: {
-          [index: number]: {
-            transcript: string
-          }
-        }
-      }
-    }
+  const handleSend = async () => {
+    if (!input.trim()) return;
 
-    const SpeechRecognition = (window as typeof window & { 
-      webkitSpeechRecognition: new () => {
-        continuous: boolean
-        interimResults: boolean
-        lang: string
-        onstart: () => void
-        onresult: (event: SpeechRecognitionEvent) => void
-        onerror: () => void
-        onend: () => void
-        start: () => void
-      }
-    }).webkitSpeechRecognition
-
-    const recognition = new SpeechRecognition()
-    recognition.continuous = false
-    recognition.interimResults = false
-    recognition.lang = 'en-US'
-
-    recognition.onstart = () => setIsListening(true)
-    
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const transcript = event.results[0][0].transcript
-      setInput(transcript)
-      setIsListening(false)
-    }
-
-    recognition.onerror = () => setIsListening(false)
-    recognition.onend = () => setIsListening(false)
-
-    recognition.start()
-  }
-
-  // Send message to AI coach
-  const sendMessage = async (messageText?: string) => {
-    const text = messageText || input
-    if (!text.trim()) return
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: text,
-      timestamp: new Date(),
-      type: 'text'
-    }
-
-    setMessages(prev => [...prev, userMessage])
-    setInput('')
-    setIsLoading(true)
+    const userMsg = { role: 'user' as const, content: input };
+    setMessages(prev => [...prev, userMsg]);
+    setInput('');
+    setLoading(true);
 
     try {
-      // Determine context
-      const context = {
-        during_workout: currentWorkout !== null,
-        current_exercise: currentWorkout?.currentExercise,
-      }
-
-      // Get AI response
-      const response = await coach.chat(text, context)
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: input, history: messages })
+      });
       
-      // Parse response for special types
-      let responseType: Message['type'] = 'text'
-      const processedResponse = response  // ✅ Fixed: Changed from 'let' to 'const'
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
 
-      // Check for special response types
-      if (response.includes('⚠️')) responseType = 'warning'
-      if (response.includes('✅')) responseType = 'success'
-      if (response.includes('FORM:')) responseType = 'form-check'
-      if (response.includes('PROGRAM:')) responseType = 'program'
-
-      const coachMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'coach',
-        content: processedResponse,
-        timestamp: new Date(),
-        type: responseType
-      }
-
-      setMessages(prev => [...prev, coachMessage])
-      
-      // Speak response if enabled
-      if (voiceEnabled) {
-        speak(processedResponse)
-      }
+      setMessages(prev => [...prev, { role: 'assistant', content: data.content }]);
     } catch (error) {
-      console.error('Coach error:', error)
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'coach',
-        content: "I'm having trouble connecting right now. Let's continue with your workout and I'll help when I'm back online!",
-        timestamp: new Date(),
-        type: 'warning'
-      }
-      setMessages(prev => [...prev, errorMessage])
+      console.error(error);
+      setMessages(prev => [...prev, { role: 'assistant', content: "I'm having trouble connecting to the server right now. Try again?" }]);
     } finally {
-      setIsLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
-  // Quick action buttons
-  const quickActions = [
-    {
-      label: "Start Workout",
-      icon: Dumbbell,
-      action: () => sendMessage("Let's start a workout. What should I focus on today?"),
-      color: "text-green-600 bg-green-50"
-    },
-    {
-      label: "Check Form",
-      icon: Activity,
-      action: () => sendMessage("I need a form check. Can you help?"),
-      color: "text-blue-600 bg-blue-50"
-    },
-    {
-      label: "Get Program",
-      icon: TrendingUp,
-      action: () => sendMessage("Design a training program for me"),
-      color: "text-purple-600 bg-purple-50"
-    },
-    {
-      label: "Nutrition Help",
-      icon: Heart,
-      action: () => sendMessage("I need nutrition advice for my training"),
-      color: "text-red-600 bg-red-50"
-    }
-  ]
-
-  // Quick stats update
-  const updateStat = (stat: keyof UserStats, value: number) => {
-    setUserStats(prev => ({ ...prev, [stat]: value }))
-  }
+  const handleQuickPrompt = (text: string) => {
+    setInput(text);
+    // Optional: Auto-send
+    // handleSend(); 
+  };
 
   return (
-    <div className="flex flex-col h-[600px] bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 rounded-2xl shadow-2xl overflow-hidden">
+    <div className="flex flex-col h-screen max-w-2xl mx-auto bg-white shadow-xl border-x border-gray-100">
+      
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-blue-600 p-4 text-white">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/20 rounded-lg">
-              <Brain className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 className="font-bold text-lg">AI Fitness Coach</h2>
-              <p className="text-xs text-purple-100">Your personal training expert</p>
-            </div>
-          </div>
-          
-          <div className="flex gap-2">
-            <button
-              onClick={startListening}
-              className={cn(
-                "p-2 rounded-lg transition-colors",
-                isListening 
-                  ? "bg-red-500 animate-pulse" 
-                  : "bg-white/20 hover:bg-white/30"
-              )}
-            >
-              {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-            </button>
-            
-            <button
-              onClick={() => setVoiceEnabled(!voiceEnabled)}
-              className={cn(
-                "p-2 rounded-lg transition-colors",
-                voiceEnabled 
-                  ? "bg-white/20 hover:bg-white/30" 
-                  : "bg-red-500/50"
-              )}
-            >
-              {voiceEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-            </button>
-          </div>
+      <div className="bg-white border-b border-gray-100 p-4 flex items-center gap-3 sticky top-0 z-10">
+        <button onClick={() => router.push('/dashboard')} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        <div className="p-2 bg-purple-100 rounded-full">
+          <Bot className="w-5 h-5 text-purple-600" />
         </div>
-
-        {/* User Stats - Quick adjusters */}
-        <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
-          <div className="bg-white/20 rounded-lg p-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs">Fatigue</span>
-              <span className="text-sm font-bold">{userStats.fatigue}/10</span>
-            </div>
-            <input
-              type="range"
-              min="1"
-              max="10"
-              value={userStats.fatigue}
-              onChange={(e) => updateStat('fatigue', Number(e.target.value))}
-              className="w-full h-1 mt-1"
-            />
-          </div>
-          <div className="bg-white/20 rounded-lg p-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs">Motivation</span>
-              <span className="text-sm font-bold">{userStats.motivation}/10</span>
-            </div>
-            <input
-              type="range"
-              min="1"
-              max="10"
-              value={userStats.motivation}
-              onChange={(e) => updateStat('motivation', Number(e.target.value))}
-              className="w-full h-1 mt-1"
-            />
-          </div>
-          <div className="bg-white/20 rounded-lg p-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs">Soreness</span>
-              <span className="text-sm font-bold">{userStats.soreness}/10</span>
-            </div>
-            <input
-              type="range"
-              min="1"
-              max="10"
-              value={userStats.soreness}
-              onChange={(e) => updateStat('soreness', Number(e.target.value))}
-              className="w-full h-1 mt-1"
-            />
-          </div>
+        <div>
+          <h1 className="font-bold text-gray-900">AI Coach</h1>
+          <p className="text-xs text-green-500 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+            Online
+          </p>
         </div>
       </div>
 
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        <AnimatePresence>
-          {messages.map((message) => (
-            <motion.div
-              key={message.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className={cn(
-                "flex gap-3",
-                message.role === 'user' ? "justify-end" : "justify-start"
-              )}
-            >
-              {message.role === 'coach' && (
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center">
-                    <Bot className="w-5 h-5 text-white" />
-                  </div>
-                </div>
-              )}
-              
-              <div
-                className={cn(
-                  "max-w-[70%] rounded-xl p-3",
-                  message.role === 'user' 
-                    ? "bg-blue-600 text-white" 
-                    : message.type === 'warning'
-                    ? "bg-orange-50 dark:bg-orange-900/20 border border-orange-200"
-                    : message.type === 'success'
-                    ? "bg-green-50 dark:bg-green-900/20 border border-green-200"
-                    : message.type === 'form-check'
-                    ? "bg-purple-50 dark:bg-purple-900/20 border border-purple-200"
-                    : "bg-white dark:bg-gray-800 shadow-md"
-                )}
-              >
-                {message.type === 'warning' && (
-                  <AlertCircle className="w-4 h-4 text-orange-600 mb-2" />
-                )}
-                {message.type === 'success' && (
-                  <CheckCircle className="w-4 h-4 text-green-600 mb-2" />
-                )}
-                
-                <p className={cn(
-                  "text-sm whitespace-pre-wrap",
-                  message.role === 'user' ? "text-white" : "text-gray-800 dark:text-gray-200"
-                )}>
-                  {message.content}
-                </p>
-                
-                <p className={cn(
-                  "text-xs mt-1",
-                  message.role === 'user' ? "text-blue-100" : "text-gray-500"
-                )}>
-                  {format(message.timestamp, 'HH:mm')}
-                </p>
-              </div>
+      {/* Chat Area */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-6 scroll-smooth">
+        {messages.map((msg, i) => (
+          <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+              msg.role === 'user' ? 'bg-gray-200' : 'bg-purple-600 text-white'
+            }`}>
+              {msg.role === 'user' ? <User className="w-4 h-4 text-gray-600" /> : <Bot className="w-4 h-4" />}
+            </div>
+            <div className={`p-4 rounded-2xl max-w-[80%] text-sm leading-relaxed ${
+              msg.role === 'user' 
+                ? 'bg-gray-100 text-gray-900 rounded-tr-none' 
+                : 'bg-purple-50 text-purple-900 rounded-tl-none border border-purple-100'
+            }`}>
+              {msg.content}
+            </div>
+          </div>
+        ))}
+        
+        {loading && (
+          <div className="flex gap-3">
+             <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center">
+                <Bot className="w-4 h-4 text-white" />
+             </div>
+             <div className="bg-purple-50 p-4 rounded-2xl rounded-tl-none flex gap-1">
+                <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" />
+                <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-100" />
+                <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-200" />
+             </div>
+          </div>
+        )}
+      </div>
 
-              {message.role === 'user' && (
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-gray-300 dark:bg-gray-700 rounded-full flex items-center justify-center">
-                    <User className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-                  </div>
-                </div>
-              )}
-            </motion.div>
+      {/* Quick Prompts */}
+      <div className="p-4 border-t border-gray-50 bg-white">
+        <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
+          {['Why is my squat stuck?', 'Suggest a substitute for Deadlifts', 'I have knee pain', 'Analyze my last week'].map((prompt, i) => (
+            <button 
+              key={i}
+              onClick={() => handleQuickPrompt(prompt)}
+              className="whitespace-nowrap px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-full text-xs font-medium text-gray-600 hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200 transition-all"
+            >
+              {prompt}
+            </button>
           ))}
-        </AnimatePresence>
+        </div>
 
-        {isLoading && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex gap-3"
-          >
-            <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center">
-              <Bot className="w-5 h-5 text-white" />
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-3 shadow-md">
-              <div className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
-                <span className="text-sm text-gray-600 dark:text-gray-400">Coach is thinking...</span>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Quick Actions */}
-      <AnimatePresence>
-        {showQuickActions && (
-          <motion.div
-            initial={{ height: 0 }}
-            animate={{ height: 'auto' }}
-            exit={{ height: 0 }}
-            className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
-          >
-            <div className="p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-gray-500">Quick Actions</span>
-                <button
-                  onClick={() => setShowQuickActions(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {quickActions.map((action, index) => (
-                  <button
-                    key={index}
-                    onClick={action.action}
-                    className={cn(
-                      "flex items-center gap-2 p-2 rounded-lg transition-colors",
-                      action.color,
-                      "hover:opacity-80"
-                    )}
-                  >
-                    <action.icon className="w-4 h-4" />
-                    <span className="text-xs font-medium">{action.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Input Area */}
-      <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+        {/* Input */}
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowQuickActions(!showQuickActions)}
-            className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-          >
-            <PlusCircle className="w-5 h-5" />
-          </button>
-          
-          <input
-            type="text"
+          <input 
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-            placeholder={isListening ? "Listening..." : "Ask your coach anything..."}
-            className={cn(
-              "flex-1 px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-purple-500",
-              "bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600",
-              isListening && "animate-pulse"
-            )}
-            disabled={isListening}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            placeholder="Ask your coach..."
+            className="flex-1 bg-gray-50 border-0 rounded-xl px-4 py-3 text-gray-900 focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all outline-none"
           />
-          
-          <button
-            onClick={() => sendMessage()}
-            disabled={!input.trim() || isLoading}
-            className={cn(
-              "p-2 rounded-lg transition-colors",
-              input.trim() && !isLoading
-                ? "bg-purple-600 text-white hover:bg-purple-700"
-                : "bg-gray-200 text-gray-400 cursor-not-allowed"
-            )}
+          <button 
+            onClick={handleSend}
+            disabled={loading || !input.trim()}
+            className="bg-purple-600 text-white p-3 rounded-xl hover:bg-purple-700 disabled:opacity-50 disabled:hover:bg-purple-600 transition-colors"
           >
-            {isLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <Send className="w-5 h-5" />
-            )}
+            <Send className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Context Tags */}
-        <div className="flex gap-2 mt-2">
-          {currentWorkout && (
-            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
-              Workout Active
-            </span>
-          )}
-          {isListening && (
-            <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full animate-pulse">
-              Listening...
-            </span>
-          )}
-          {voiceEnabled && (
-            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-              Voice On
-            </span>
-          )}
-        </div>
       </div>
+
     </div>
-  )
+  );
 }

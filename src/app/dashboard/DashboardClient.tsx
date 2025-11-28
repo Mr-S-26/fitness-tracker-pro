@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { resetUserProfile } from '@/app/actions/reset-profile';
 import { 
   Activity, 
   Flame, 
@@ -11,6 +10,7 @@ import {
   Utensils
 } from 'lucide-react';
 import Link from 'next/link';
+import { resetUserProfile } from '@/app/actions/reset-profile';
 
 interface DashboardClientProps {
   profile: any;
@@ -20,12 +20,10 @@ interface DashboardClientProps {
 }
 
 export default function DashboardClient({ profile, nutrition, program, user }: DashboardClientProps) {
-  const [currentWeek] = useState(1); // In a real app, calculate this based on start date
+  const [currentWeek] = useState(1); 
 
-  // Get current day of the week (e.g., "Monday")
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   
-  // Find today's workout from the program
   const currentWeekData = program?.program_data?.weeks?.find((w: any) => w.week_number === currentWeek);
   const todaysWorkout = currentWeekData?.workouts?.find((w: any) => w.day === today);
 
@@ -139,9 +137,10 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
                   </div>
                   <h3 className="font-medium text-gray-900">Rest Day</h3>
                   <p className="text-sm text-gray-500 mb-4">Focus on recovery and nutrition today.</p>
-                  <button className="text-purple-600 font-medium hover:text-purple-700 text-sm">
+                  {/* Link to full schedule if it's a rest day */}
+                  <Link href="/workout/program" className="text-purple-600 font-medium hover:text-purple-700 text-sm">
                     View Full Schedule →
-                  </button>
+                  </Link>
                 </div>
               )}
             </div>
@@ -164,21 +163,35 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
                 <MacroRow label="Carbs" current={0} target={nutrition?.carbs_grams || 200} color="bg-orange-500" />
                 <MacroRow label="Fats" current={0} target={nutrition?.fat_grams || 60} color="bg-yellow-500" />
               </div>
+              
+              <Link href="/nutrition" className="block mt-4 text-center text-sm text-green-600 font-medium hover:text-green-700">
+                View Nutrition Plan →
+              </Link>
             </div>
 
             {/* Quick Actions */}
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
                <h3 className="font-bold text-gray-900 mb-4">Quick Actions</h3>
                <div className="space-y-2">
-                 <Link href="/measurements" className="w-full">
-  <QuickAction label="Log Body Weight" />
-</Link>
-<Link href="/checkin/weekly" className="w-full">
-  <QuickAction label="Weekly Check-in" />
-</Link>
-                 <QuickAction label="Update Goals" />
                  
-                 {/* 🔴 Add this Reset Button */}
+                 {/* ✅ NEW: Link to Program Calendar */}
+                 <Link href="/workout/program" className="w-full">
+                    <QuickAction label="View Full Schedule" />
+                 </Link>
+
+                 <Link href="/measurements" className="w-full">
+                    <QuickAction label="Log Body Weight" />
+                 </Link>
+
+                 <Link href="/checkin/weekly" className="w-full">
+                    <QuickAction label="Weekly Check-in" />
+                 </Link>
+
+                 <Link href="/coach" className="w-full">
+                    <QuickAction label="Chat with AI Coach" />
+                 </Link>
+
+                 {/* Reset Button */}
                  <form action={resetUserProfile}>
                     <button 
                       type="submit"
