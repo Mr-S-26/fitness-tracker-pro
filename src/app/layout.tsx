@@ -16,6 +16,13 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Fitness Tracker Pro",
   description: "AI-Powered Workout Tracking",
+  manifest: "/manifest.json", // ✅ Link to the manifest
+  themeColor: "#7c3aed",      // ✅ Matches your brand purple
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,          // Prevents zooming on inputs (app-like feel)
+  },
 };
 
 export default function RootLayout({
