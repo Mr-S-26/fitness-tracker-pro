@@ -4,7 +4,10 @@ import { createClient } from '@/lib/supabase/server';
 import type { OnboardingFormData } from '@/types/database';
 import { calculateNutritionPlan } from '@/lib/nutrition/macro-calculator';
 
-// ... (Interfaces remain the same)
+// ==========================================
+// 1. INTERFACES
+// ==========================================
+
 export interface WorkoutProgram {
   program_name: string;
   program_overview: string;
@@ -18,6 +21,10 @@ export interface WorkoutProgram {
       warmups: string[];
       exercises: Array<{
         exercise_name: string;
+        video_url?: string;
+        setup_cues?: string[];
+        execution_cues?: string[];
+        common_mistakes?: string[];
         sets: number;
         reps: string;
         rest_seconds: number;
@@ -37,66 +44,65 @@ export interface GeneratedPlan {
   nutrition: any;
 }
 
+// ==========================================
+// 2. MAIN GENERATOR FUNCTION
+// ==========================================
+
 export async function generatePersonalizedProgram(
   formData: OnboardingFormData,
   userId: string
 ): Promise<GeneratedPlan> {
-  console.log('🤖 Starting Equipment-Prioritized Generation...');
+  console.log('🤖 Starting Smart Plan Generation...');
   
   const supabase = await createClient();
   
-  // 1. SMART EQUIPMENT DETECTION
-  // We use .some() to check if ANY selected equipment string contains the keyword
-  const userEquipment = formData.available_equipment || [];
-  const hasDumbbells = userEquipment.some(e => e.includes('dumbbell'));
-  const hasBarbell = userEquipment.some(e => e.includes('barbell'));
-  const hasGym = userEquipment.some(e => e.includes('gym') || e.includes('commercial'));
-  const hasPullUpBar = userEquipment.some(e => e.includes('pull_up') || e.includes('pullup'));
-  const hasCables = userEquipment.some(e => e.includes('cable') || e.includes('bands')); // Treat bands as cables for now
+  // ✅ FIX 1: Fuzzy Matching for Equipment
+  // This catches "adjustable_dumbbells", "dumbbells", "dumbbell_set", etc.
+  const equipment = formData.available_equipment || [];
+  
+  // Helper to check for keywords inside the equipment array strings
+  const has = (keyword: string) => equipment.some(item => item.toLowerCase().includes(keyword));
 
   const allowedTypes = ['bodyweight']; 
   
-  if (hasDumbbells) allowedTypes.push('dumbbell');
-  if (hasBarbell) allowedTypes.push('barbell');
-  if (hasCables) allowedTypes.push('cable');
-  if (hasGym) {
-      allowedTypes.push('machine', 'cable', 'barbell', 'dumbbell');
+  // If user has ANY kind of dumbbell
+  if (has('dumbbell')) {
+      allowedTypes.push('dumbbell');
+  }
+  
+  // If user has ANY kind of barbell
+  if (has('barbell')) {
+      allowedTypes.push('barbell');
+  }
+  
+  // If user has "Gym" access (implies machines + cables + everything)
+  if (has('gym') || has('commercial')) {
+      allowedTypes.push('machine', 'cable');
+      // Gyms usually have free weights too
+      if (!allowedTypes.includes('barbell')) allowedTypes.push('barbell');
+      if (!allowedTypes.includes('dumbbell')) allowedTypes.push('dumbbell');
   }
 
-  // 2. Fetch Exercises
-  // Note: We don't filter by "pull_up_bar" type because Pull-ups are usually tagged as 'bodyweight'
-  // We handle the "Pull-up" prioritization in the sorting logic later.
+  console.log(`🔍 Detected Equipment for User: ${allowedTypes.join(', ')}`);
+
+  // B. Fetch Exercises from DB
   const { data: dbExercises } = await supabase
     .from('exercises')
     .select('*')
     .in('equipment', allowedTypes);
 
   const exercisePool = dbExercises || [];
-  
-  // Filter specifically for Pull-up bar if the user has one (Ensure Pull-ups are included)
-  // If user DOES NOT have a pull-up bar, we must remove "Pull-up" and "Chin-up" from bodyweight moves
-  let filteredPool = exercisePool;
-  if (!hasPullUpBar && !hasGym) {
-      filteredPool = exercisePool.filter(ex => 
-          !ex.name.toLowerCase().includes('pull-up') && 
-          !ex.name.toLowerCase().includes('chin-up')
-      );
-  }
+  console.log(`📚 Loaded ${exercisePool.length} exercises from library`);
 
-  console.log(`📚 Loaded ${filteredPool.length} exercises for ${userEquipment.join(', ')}`);
-
-  const program = generateScientificProgram(formData, filteredPool, { hasDumbbells, hasBarbell, hasGym });
+  // C. Generate Logic
+  const program = generateScientificProgram(formData, exercisePool);
   const nutrition = calculateNutritionPlan(formData);
 
   return { program, nutrition };
 }
 
-function generateScientificProgram(
-    formData: OnboardingFormData, 
-    exercisePool: any[],
-    equipmentFlags: { hasDumbbells: boolean; hasBarbell: boolean; hasGym: boolean }
-): WorkoutProgram {
-  
+function generateScientificProgram(formData: OnboardingFormData, exercisePool: any[]): WorkoutProgram {
+  // Extract Inputs
   const daysPerWeek = formData.available_days_per_week || 3;
   const selectedDays = formData.selected_days; 
   const goal = formData.primary_goal || 'general_fitness';
@@ -105,9 +111,13 @@ function generateScientificProgram(
   const sex = formData.sex || 'male';
   const injuries = formData.current_injuries?.map(i => i.body_part.toLowerCase()) || [];
 
+  // 1. 🩹 Apply Safety Filter
   const safePool = filterExercisesForSafety(exercisePool, injuries);
+
+  // 2. 🧩 Determine Split Pattern
   const splitPattern = getSplitPattern(daysPerWeek);
 
+  // 3. Build 12-Week Plan
   const weeks = [];
   for (let weekNum = 1; weekNum <= 12; weekNum++) {
     const phase = getPhaseVariables(weekNum, goal);
@@ -116,7 +126,7 @@ function generateScientificProgram(
       daysPerWeek,
       safePool,
       splitPattern,
-      weekNum === 9,
+      weekNum === 9, // Deload week
       weekNum,
       formData.weight_kg || 70,
       experience,
@@ -124,7 +134,6 @@ function generateScientificProgram(
       sex,
       goal,
       phase,
-      equipmentFlags, // ✅ Pass flags to prioritize weights
       selectedDays
     );
 
@@ -137,16 +146,16 @@ function generateScientificProgram(
 
   return {
     program_name: `12-Week ${capitalize(experience)} ${splitPattern.name} Protocol`,
-    program_overview: `Custom ${splitPattern.name} split for ${goal.replace('_', ' ')}. Equipment: ${equipmentFlags.hasGym ? 'Full Gym' : 'Home Setup'}.`,
+    program_overview: `Customized ${splitPattern.name} split for ${goal.replace('_', ' ')}. Focused on ${phaseFocus(goal)}.`,
     duration_weeks: 12,
     weeks,
-    progression_notes: `2-for-2 Rule: Increase weight when you can hit 2 extra reps for 2 sets.`,
-    deload_strategy: `Week 9 is Active Recovery. Reduce volume by 50%.`,
+    progression_notes: `2-for-2 Rule: If you can complete 2 extra reps on your last set for 2 consecutive workouts, increase weight by 2.5kg.`,
+    deload_strategy: `Week 9 is Active Recovery. Reduce volume by 50% to prevent burnout.`,
   };
 }
 
 // ==========================================
-// 🏗️ WORKOUT BUILDER
+// 3. WORKOUT BUILDER LOGIC
 // ==========================================
 
 function buildWeekWorkouts(
@@ -161,30 +170,30 @@ function buildWeekWorkouts(
   sex: string,
   goal: string,
   phase: any,
-  equipmentFlags: { hasDumbbells: boolean; hasBarbell: boolean; hasGym: boolean },
   selectedDays?: string[]
 ) {
   const workouts = [];
-  const dayNames = selectedDays && selectedDays.length > 0 ? selectedDays : getDaySplit(days); 
+  
+  const dayNames = selectedDays && selectedDays.length > 0 
+    ? selectedDays 
+    : getDaySplit(days); 
 
   for (let i = 0; i < dayNames.length; i++) {
     const theme = split.schedule[i % split.schedule.length]; 
     let themePool = getExercisesForTheme(masterPool, theme);
     
-    // ✅ NEW SORTING LOGIC: Prioritize Equipment
+    // ✅ FIX 2: Better Sorting (Prioritize User's Main Equipment)
     themePool = themePool.sort((a, b) => {
-       // 1. Priority: Tier (Compounds First)
+       // 1. Tier (Compounds First)
        const tierA = parseInt(a.tier?.replace('tier_', '') || '3');
        const tierB = parseInt(b.tier?.replace('tier_', '') || '3');
        if (tierA !== tierB) return tierA - tierB;
        
-       // 2. Priority: Equipment (Weighted > Bodyweight)
-       // If user has weights, we want to push those exercises to the top
+       // 2. Equipment (Weighted > Bodyweight)
        const isWeightedA = a.equipment !== 'bodyweight';
        const isWeightedB = b.equipment !== 'bodyweight';
-       
-       if (isWeightedA && !isWeightedB) return -1; // A comes first
-       if (!isWeightedA && isWeightedB) return 1;  // B comes first
+       if (isWeightedA && !isWeightedB) return -1;
+       if (!isWeightedA && isWeightedB) return 1;
        
        return 0;
     });
@@ -192,6 +201,7 @@ function buildWeekWorkouts(
     const startIndex = (week % 2) * 2; 
     const dailyExercisesRaw = themePool.slice(startIndex, startIndex + 6);
     
+    // Fallback Logic
     if (dailyExercisesRaw.length < 4) {
        const needed = 4 - dailyExercisesRaw.length;
        const fallbacks = getFallbackExercises(theme).slice(0, needed);
@@ -210,6 +220,12 @@ function buildWeekWorkouts(
 
       return {
         exercise_name: ex.name,
+        // ✅ PASS RICH DATA
+        video_url: ex.video_url, 
+        setup_cues: ex.setup_cues,
+        execution_cues: ex.execution_cues,
+        common_mistakes: ex.common_mistakes,
+
         sets: baseSets,
         reps: phase.reps,
         rest_seconds: phase.rest,
@@ -230,13 +246,10 @@ function buildWeekWorkouts(
   return workouts;
 }
 
-// ... (Keep Helpers: getSplitPattern, getExercisesForTheme, getFallbackExercises, etc. EXACTLY as they were)
-// Just ensure `calculateStartingWeight` handles the weight calculation we wrote previously.
+// ==========================================
+// 4. INTELLIGENCE ENGINES
+// ==========================================
 
-// (Re-paste the helpers block from previous version if you need them, or just keep the file bottom intact)
-// ==========================================
-// 4. INTELLIGENCE ENGINES (Paste previous helpers here)
-// ==========================================
 type SplitDay = 'Full Body' | 'Upper' | 'Lower' | 'Push' | 'Pull' | 'Legs' | 'Core' | 'Cardio';
 
 interface SplitPattern {
@@ -371,43 +384,46 @@ function getCooldowns(theme: SplitDay) {
 }
 
 function getFallbackExercises(theme: SplitDay) {
+  // ✅ FIX 3: Added Placeholder Video URL for Fallbacks
+  const placeholderVideo = ""; // Or a generic gym GIF if you have one
+  
   switch (theme) {
     case 'Lower':
     case 'Legs':
       return [
-        { name: 'Bodyweight Squats', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight' },
-        { name: 'Walking Lunges', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight' },
-        { name: 'Glute Bridges', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight' },
-        { name: 'Calf Raises', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight' }
+        { name: 'Bodyweight Squats', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Walking Lunges', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Glute Bridges', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Calf Raises', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight', video_url: placeholderVideo }
       ];
     case 'Push':
     case 'Upper':
       return [
-        { name: 'Push-ups', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight' },
-        { name: 'Pike Push-ups', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight' },
-        { name: 'Tricep Dips (Chair)', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight' },
-        { name: 'Diamond Push-ups', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight' }
+        { name: 'Push-ups', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Pike Push-ups', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Tricep Dips (Chair)', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Diamond Push-ups', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight', video_url: placeholderVideo }
       ];
     case 'Pull':
       return [
-        { name: 'Doorframe Rows', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight' },
-        { name: 'Superman Hold', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight' },
-        { name: 'Scapular Retractions', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight' },
-        { name: 'Towel Bicep Curls', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight' }
+        { name: 'Doorframe Rows', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Superman Hold', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Scapular Retractions', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Towel Bicep Curls', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight', video_url: placeholderVideo }
       ];
     case 'Core':
       return [
-        { name: 'Plank', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight' },
-        { name: 'Crunches', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight' },
-        { name: 'Leg Raises', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight' },
-        { name: 'Russian Twists', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight' }
+        { name: 'Plank', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Crunches', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Leg Raises', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Russian Twists', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight', video_url: placeholderVideo }
       ];
-    default:
+    default: 
       return [
-        { name: 'Bodyweight Squats', beginner_multiplier: 0, equipment: 'bodyweight' },
-        { name: 'Push-ups', beginner_multiplier: 0, equipment: 'bodyweight' },
-        { name: 'Lunges', beginner_multiplier: 0, equipment: 'bodyweight' },
-        { name: 'Plank', beginner_multiplier: 0, equipment: 'bodyweight' }
+        { name: 'Bodyweight Squats', beginner_multiplier: 0, equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Push-ups', beginner_multiplier: 0, equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Lunges', beginner_multiplier: 0, equipment: 'bodyweight', video_url: placeholderVideo },
+        { name: 'Plank', beginner_multiplier: 0, equipment: 'bodyweight', video_url: placeholderVideo }
       ];
   }
 }
