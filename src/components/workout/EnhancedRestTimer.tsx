@@ -24,7 +24,7 @@ export default function EnhancedRestTimer({ initialSeconds, coachMessage, onComp
       }
       const ctx = audioContextRef.current;
       
-      // ✅ FIX: Force resume context (fixes "no sound" on Chrome/iOS)
+      // Force resume context (fixes "no sound" on Chrome/iOS)
       if (ctx.state === 'suspended') {
         ctx.resume();
       }
@@ -36,10 +36,14 @@ export default function EnhancedRestTimer({ initialSeconds, coachMessage, onComp
       gain.connect(ctx.destination);
 
       osc.frequency.value = frequency;
-      osc.type = 'sine';
+      // ✅ CHANGED: 'triangle' is much sharper and easier to hear on phones than 'sine'
+      osc.type = 'triangle'; 
+      
+      // ✅ CHANGED: Set Volume to 4.0 (400% Gain)
+      gain.gain.setValueAtTime(4.0, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + duration);
       
       osc.start();
-      gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + duration);
       osc.stop(ctx.currentTime + duration);
     } catch (e) {
       console.error("Audio play failed", e);
@@ -52,8 +56,10 @@ export default function EnhancedRestTimer({ initialSeconds, coachMessage, onComp
   }, []);
 
   useEffect(() => {
+    // 🚨 Completion Logic
     if (timeLeft <= 0) {
-      playBeep(1200, 0.5); // 🚨 Final high beep
+      playBeep(1200, 0.5); // High pitch finished beep
+      
       const timeout = setTimeout(() => {
         onComplete();
       }, 500);
