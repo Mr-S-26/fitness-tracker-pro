@@ -326,7 +326,8 @@ export interface OnboardingFormData {
   previous_programs: string
   
   // Step 4: Schedule
-  available_days_per_week: number
+  available_days_per_week: number; // Keep for backward compatibility/stats
+  selected_days?: string[]; // ✅ NEW: Specific days (e.g. ["Monday", "Thursday"])
   session_duration_minutes: number
   preferred_training_times: string[]
   

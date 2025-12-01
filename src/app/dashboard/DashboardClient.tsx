@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { resetUserProfile } from '@/app/actions/reset-profile';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 interface DashboardClientProps {
   profile: any;
@@ -28,24 +29,37 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
   const todaysWorkout = currentWeekData?.workouts?.find((w: any) => w.day === today);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-4 md:p-8 transition-colors duration-300">
       <div className="max-w-7xl mx-auto space-y-8">
         
         {/* Header Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">
-              Welcome back, {profile?.full_name?.split(' ')[0] || 'Athlete'} 👋
-            </h1>
-            <p className="text-gray-600 mt-1">
-              Week {currentWeek} • {currentWeekData?.focus || 'Building Consistency'}
-            </p>
+          <div className="flex items-center justify-between w-full md:w-auto">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                Welcome back, {profile?.full_name?.split(' ')[0] || 'Athlete'} 👋
+              </h1>
+              <p className="text-gray-600 dark:text-gray-400 mt-1">
+                Week {currentWeek} • {currentWeekData?.focus || 'Building Consistency'}
+              </p>
+            </div>
+            <div className="md:hidden">
+                <ThemeToggle />
+            </div>
           </div>
-          <div className="flex gap-3">
-             <Link href="/workout/check-in" className="bg-white text-gray-700 px-4 py-2 rounded-lg font-medium border border-gray-200 hover:bg-gray-50 transition-colors">
+
+          <div className="flex gap-3 items-center">
+             <div className="hidden md:block">
+                <ThemeToggle />
+             </div>
+
+             {/* Daily Check-in (Optional - can be kept for logging without starting) */}
+             <Link href="/workout/check-in" className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg font-medium border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                Daily Check-in
              </Link>
-             <Link href="/workout/active" className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center gap-2">
+             
+             {/* ✅ UPDATED: Now redirects to Check-in first to capture readiness */}
+             <Link href="/workout/check-in" className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center gap-2 shadow-lg shadow-purple-500/20">
                <Dumbbell className="w-4 h-4" />
                Start Workout
              </Link>
@@ -59,28 +73,28 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
             label="Daily Calorie Target"
             value={`${nutrition?.daily_calories || 0}`}
             subValue="kcal"
-            bg="bg-orange-50"
+            bg="bg-orange-50 dark:bg-orange-900/20"
           />
            <StatCard 
             icon={<Activity className="w-6 h-6 text-blue-500" />}
             label="Workouts Completed"
             value="0"
             subValue={`/ ${profile?.available_days_per_week || 3} this week`}
-            bg="bg-blue-50"
+            bg="bg-blue-50 dark:bg-blue-900/20"
           />
            <StatCard 
             icon={<Dumbbell className="w-6 h-6 text-purple-500" />}
             label="Current Phase"
             value="Hypertrophy"
             subValue="Week 1-4"
-            bg="bg-purple-50"
+            bg="bg-purple-50 dark:bg-purple-900/20"
           />
            <StatCard 
             icon={<Calendar className="w-6 h-6 text-green-500" />}
             label="Streak"
             value="1"
             subValue="Day Active"
-            bg="bg-green-50"
+            bg="bg-green-50 dark:bg-green-900/20"
           />
         </div>
 
@@ -89,19 +103,19 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
           <div className="lg:col-span-2 space-y-6">
             
             {/* Today's Workout Card */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+            <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 shadow-sm border border-gray-100 dark:border-gray-800 transition-colors">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-purple-100 rounded-lg">
-                    <Calendar className="w-6 h-6 text-purple-600" />
+                  <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                    <Calendar className="w-6 h-6 text-purple-600 dark:text-purple-400" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold text-gray-900">Today's Training</h2>
-                    <p className="text-sm text-gray-500">{today}</p>
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Today's Training</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{today}</p>
                   </div>
                 </div>
                 {todaysWorkout && (
-                   <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+                   <span className="px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full text-xs font-semibold">
                      Scheduled
                    </span>
                 )}
@@ -109,36 +123,36 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
 
               {todaysWorkout ? (
                 <div className="space-y-4">
-                  <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                    <h3 className="font-bold text-lg text-gray-900 mb-1">{todaysWorkout.workout_name}</h3>
-                    <p className="text-sm text-gray-600 mb-4">{todaysWorkout.exercises?.length || 0} Exercises • ~{profile?.session_duration_minutes || 60} Min</p>
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700">
+                    <h3 className="font-bold text-lg text-gray-900 dark:text-white mb-1">{todaysWorkout.workout_name}</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{todaysWorkout.exercises?.length || 0} Exercises • ~{profile?.session_duration_minutes || 60} Min</p>
                     
                     <div className="space-y-2">
                       {todaysWorkout.exercises?.slice(0, 3).map((ex: any, i: number) => (
-                        <div key={i} className="flex items-center justify-between text-sm p-2 bg-white rounded border border-gray-100">
-                          <span className="font-medium text-gray-700">{ex.exercise_name}</span>
-                          <span className="text-gray-500">{ex.sets} x {ex.reps}</span>
+                        <div key={i} className="flex items-center justify-between text-sm p-2 bg-white dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700">
+                          <span className="font-medium text-gray-700 dark:text-gray-200">{ex.exercise_name}</span>
+                          <span className="text-gray-500 dark:text-gray-400">{ex.sets} x {ex.reps}</span>
                         </div>
                       ))}
                       {todaysWorkout.exercises?.length > 3 && (
-                        <p className="text-xs text-center text-gray-500 pt-2">+ {todaysWorkout.exercises.length - 3} more exercises</p>
+                        <p className="text-xs text-center text-gray-500 dark:text-gray-500 pt-2">+ {todaysWorkout.exercises.length - 3} more exercises</p>
                       )}
                     </div>
                   </div>
 
-                  <Link href="/workout/active" className="w-full block text-center bg-gray-900 text-white py-3 rounded-xl font-semibold hover:bg-gray-800 transition-colors">
+                  {/* ✅ UPDATED: Redirects to Check-in first */}
+                  <Link href="/workout/check-in" className="w-full block text-center bg-gray-900 dark:bg-white text-white dark:text-gray-900 py-3 rounded-xl font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors">
                     Start Workout Now
                   </Link>
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  <div className="inline-flex p-4 bg-gray-50 rounded-full mb-3">
-                    <Utensils className="w-6 h-6 text-gray-400" />
+                  <div className="inline-flex p-4 bg-gray-50 dark:bg-gray-800 rounded-full mb-3">
+                    <Utensils className="w-6 h-6 text-gray-400 dark:text-gray-500" />
                   </div>
-                  <h3 className="font-medium text-gray-900">Rest Day</h3>
-                  <p className="text-sm text-gray-500 mb-4">Focus on recovery and nutrition today.</p>
-                  {/* Link to full schedule if it's a rest day */}
-                  <Link href="/workout/program" className="text-purple-600 font-medium hover:text-purple-700 text-sm">
+                  <h3 className="font-medium text-gray-900 dark:text-white">Rest Day</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Focus on recovery and nutrition today.</p>
+                  <Link href="/workout/program" className="text-purple-600 dark:text-purple-400 font-medium hover:text-purple-700 dark:hover:text-purple-300 text-sm">
                     View Full Schedule →
                   </Link>
                 </div>
@@ -150,12 +164,12 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
           <div className="space-y-6">
             
             {/* Nutrition Snapshot */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+            <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 shadow-sm border border-gray-100 dark:border-gray-800 transition-colors">
               <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <Utensils className="w-6 h-6 text-green-600" />
+                <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                  <Utensils className="w-6 h-6 text-green-600 dark:text-green-400" />
                 </div>
-                <h2 className="font-bold text-gray-900">Nutrition Goals</h2>
+                <h2 className="font-bold text-gray-900 dark:text-white">Nutrition Goals</h2>
               </div>
 
               <div className="space-y-4">
@@ -164,17 +178,16 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
                 <MacroRow label="Fats" current={0} target={nutrition?.fat_grams || 60} color="bg-yellow-500" />
               </div>
               
-              <Link href="/nutrition" className="block mt-4 text-center text-sm text-green-600 font-medium hover:text-green-700">
+              <Link href="/nutrition" className="block mt-4 text-center text-sm text-green-600 dark:text-green-400 font-medium hover:text-green-700 dark:hover:text-green-300">
                 View Nutrition Plan →
               </Link>
             </div>
 
             {/* Quick Actions */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-               <h3 className="font-bold text-gray-900 mb-4">Quick Actions</h3>
+            <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 shadow-sm border border-gray-100 dark:border-gray-800 transition-colors">
+               <h3 className="font-bold text-gray-900 dark:text-white mb-4">Quick Actions</h3>
                <div className="space-y-2">
                  
-                 {/* ✅ NEW: Link to Program Calendar */}
                  <Link href="/workout/program" className="w-full">
                     <QuickAction label="View Full Schedule" />
                  </Link>
@@ -195,7 +208,7 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
                  <form action={resetUserProfile}>
                     <button 
                       type="submit"
-                      className="w-full flex items-center justify-between p-3 hover:bg-red-50 text-red-600 rounded-lg transition-colors group"
+                      className="w-full flex items-center justify-between p-3 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg transition-colors group"
                     >
                       <span className="text-sm font-medium">Reset & Re-Generate Program</span>
                       <ChevronRight className="w-4 h-4 opacity-50" />
@@ -214,14 +227,14 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
 // Helper Components
 function StatCard({ icon, label, value, subValue, bg }: any) {
   return (
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+    <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 transition-colors">
       <div className={`w-12 h-12 ${bg} rounded-xl flex items-center justify-center mb-4`}>
         {icon}
       </div>
-      <p className="text-sm text-gray-500 mb-1">{label}</p>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">{label}</p>
       <div className="flex items-baseline gap-2">
-        <span className="text-2xl font-bold text-gray-900">{value}</span>
-        <span className="text-xs text-gray-400 font-medium">{subValue}</span>
+        <span className="text-2xl font-bold text-gray-900 dark:text-white">{value}</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">{subValue}</span>
       </div>
     </div>
   );
@@ -232,10 +245,10 @@ function MacroRow({ label, current, target, color }: any) {
   return (
     <div>
       <div className="flex justify-between text-sm mb-1">
-        <span className="font-medium text-gray-700">{label}</span>
-        <span className="text-gray-500">{current} / {target}g</span>
+        <span className="font-medium text-gray-700 dark:text-gray-300">{label}</span>
+        <span className="text-gray-500 dark:text-gray-400">{current} / {target}g</span>
       </div>
-      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div className="h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
         <div className={`h-full ${color} rounded-full`} style={{ width: `${progress}%` }} />
       </div>
     </div>
@@ -244,9 +257,9 @@ function MacroRow({ label, current, target, color }: any) {
 
 function QuickAction({ label }: { label: string }) {
   return (
-    <button className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors group">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
-      <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-purple-600" />
+    <button className="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors group">
+      <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{label}</span>
+      <ChevronRight className="w-4 h-4 text-gray-400 dark:text-gray-600 group-hover:text-purple-600 dark:group-hover:text-purple-400" />
     </button>
   );
 }

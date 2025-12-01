@@ -199,8 +199,16 @@ export default function OnboardingPage() {
         return <GoalsStep formData={formData} setFormData={setFormData} />;
       case 'experience':
         return <ExperienceStep formData={formData} setFormData={setFormData} />;
+      // ✅ FIXED: Pass the correct props expected by the new ScheduleStep component
       case 'schedule':
-        return <ScheduleStep formData={formData} setFormData={setFormData} />;
+        return (
+          <ScheduleStep 
+            data={formData} // Changed from formData={formData}
+            onUpdate={(newData: Partial<OnboardingFormData>) => setFormData(prev => ({ ...prev, ...newData }))} // Changed from setFormData={setFormData}
+            onNext={handleNext}
+            onBack={handleBack}
+          />
+        );
       case 'equipment':
         return <EquipmentStep formData={formData} setFormData={setFormData} />;
       case 'limitations':
