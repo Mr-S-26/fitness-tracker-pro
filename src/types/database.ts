@@ -347,6 +347,7 @@ export interface OnboardingFormData {
   // Step 7: Body Metrics
   height_cm: number
   weight_kg: number
+  target_weight_kg?: number;
   body_fat_percentage?: number
   age: number
   sex: 'male' | 'female' | 'other'
