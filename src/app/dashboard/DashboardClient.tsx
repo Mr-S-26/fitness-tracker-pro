@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { 
   Activity, 
   Flame, 
@@ -12,6 +12,7 @@ import {
 import Link from 'next/link';
 import { resetUserProfile } from '@/app/actions/reset-profile';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { differenceInWeeks } from 'date-fns';
 
 interface DashboardClientProps {
   profile: any;
@@ -21,12 +22,46 @@ interface DashboardClientProps {
 }
 
 export default function DashboardClient({ profile, nutrition, program, user }: DashboardClientProps) {
-  const [currentWeek] = useState(1); 
+  // 1. Calculate "Live" Week & Phase
+  const { currentWeek, currentPhase, phaseName } = useMemo(() => {
+    if (!program) return { currentWeek: 1, currentPhase: 'N/A', phaseName: 'No Program' };
+    
+    const startDate = new Date(program.created_at);
+    const weeksSinceStart = Math.max(0, differenceInWeeks(new Date(), startDate));
+    const currentWeekNum = weeksSinceStart + 1; // 0-index to 1-index
+    
+    // Get the actual week data from the AI plan
+    // Safety check: If past week 12, just show week 12 data for now (or loop)
+    const weekData = program.program_data?.weeks?.find((w: any) => w.week_number === currentWeekNum) 
+                     || program.program_data?.weeks?.[program.program_data.weeks.length - 1];
+
+    return {
+      currentWeek: currentWeekNum,
+      currentPhase: weekData?.focus || 'General Fitness',
+      phaseName: `Week ${currentWeekNum}-${Math.min(currentWeekNum + 3, 12)}` 
+    };
+  }, [program]);
 
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   
-  const currentWeekData = program?.program_data?.weeks?.find((w: any) => w.week_number === currentWeek);
+  // Find today's workout in the *correct* week
+  // Use safe access for weeks in case currentWeek > 12
+  const currentWeekData = program?.program_data?.weeks?.find((w: any) => w.week_number === currentWeek) 
+                          || program?.program_data?.weeks?.[program?.program_data?.weeks?.length - 1];
+                          
   const todaysWorkout = currentWeekData?.workouts?.find((w: any) => w.day === today);
+
+  // 3. Dynamic User Title
+  const userTitle = useMemo(() => {
+    if (profile?.full_name) return profile.full_name.split(' ')[0]; 
+    
+    const goal = profile?.primary_goal;
+    if (goal === 'strength') return 'Lifter';
+    if (goal === 'muscle_gain') return 'Bodybuilder';
+    if (goal === 'fat_loss') return 'Warrior';
+    if (goal === 'athletic_performance') return 'Athlete';
+    return 'Friend'; 
+  }, [profile]);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-4 md:p-8 transition-colors duration-300">
@@ -37,10 +72,10 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
           <div className="flex items-center justify-between w-full md:w-auto">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-                Welcome back, {profile?.full_name?.split(' ')[0] || 'Athlete'} 👋
+                Welcome back, {userTitle} 👋
               </h1>
               <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Week {currentWeek} • {currentWeekData?.focus || 'Building Consistency'}
+                Week {currentWeek} • {currentPhase}
               </p>
             </div>
             <div className="md:hidden">
@@ -53,12 +88,9 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
                 <ThemeToggle />
              </div>
 
-             {/* Daily Check-in (Optional - can be kept for logging without starting) */}
              <Link href="/workout/check-in" className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg font-medium border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                Daily Check-in
              </Link>
-             
-             {/* ✅ UPDATED: Now redirects to Check-in first to capture readiness */}
              <Link href="/workout/check-in" className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center gap-2 shadow-lg shadow-purple-500/20">
                <Dumbbell className="w-4 h-4" />
                Start Workout
@@ -78,17 +110,19 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
            <StatCard 
             icon={<Activity className="w-6 h-6 text-blue-500" />}
             label="Workouts Completed"
-            value="0"
+            value="0" 
             subValue={`/ ${profile?.available_days_per_week || 3} this week`}
             bg="bg-blue-50 dark:bg-blue-900/20"
           />
+           
            <StatCard 
             icon={<Dumbbell className="w-6 h-6 text-purple-500" />}
             label="Current Phase"
-            value="Hypertrophy"
-            subValue="Week 1-4"
+            value={currentPhase.split(':')[0]} 
+            subValue={currentPhase.split(':')[1] || 'Training'} 
             bg="bg-purple-50 dark:bg-purple-900/20"
           />
+           
            <StatCard 
             icon={<Calendar className="w-6 h-6 text-green-500" />}
             label="Streak"
@@ -140,7 +174,6 @@ export default function DashboardClient({ profile, nutrition, program, user }: D
                     </div>
                   </div>
 
-                  {/* ✅ UPDATED: Redirects to Check-in first */}
                   <Link href="/workout/check-in" className="w-full block text-center bg-gray-900 dark:bg-white text-white dark:text-gray-900 py-3 rounded-xl font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors">
                     Start Workout Now
                   </Link>

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
-  Dumbbell, Clock, CheckCircle2, AlertTriangle, ChevronLeft, MoreVertical, Brain, Flame, Wind 
+  Dumbbell, Clock, CheckCircle2, AlertTriangle, ChevronLeft, MoreVertical, Brain, Flame, Wind, Repeat
 } from 'lucide-react';
 import EnhancedRestTimer from './EnhancedRestTimer';
 import AISetFeedback from '@/components/coaching/AISetFeedback';
@@ -22,6 +22,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   const [loading, setLoading] = useState(true);
   const [adjustmentReason, setAdjustmentReason] = useState<string | null>(null);
   const [activeWorkout, setActiveWorkout] = useState<any>(null);
+  const [activeFocus, setActiveFocus] = useState<string>('');
   
   const [showTimer, setShowTimer] = useState(false);
   const [currentRestTime, setCurrentRestTime] = useState(60);
@@ -46,13 +47,19 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   useEffect(() => {
     const initSession = () => {
       const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-      const week1 = programData.weeks.find((w: any) => w.week_number === 1);
-      const scheduledWorkout = week1?.workouts.find((w: any) => w.day === today);
+      
+      // TODO: Logic to find the correct week based on start date
+      // For MVP, we default to Week 1
+      const currentWeekData = programData.weeks.find((w: any) => w.week_number === 1);
+      const scheduledWorkout = currentWeekData?.workouts.find((w: any) => w.day === today);
 
       if (!scheduledWorkout) {
         setLoading(false);
         return;
       }
+
+      // Capture the phase focus (e.g. "Strength", "Endurance")
+      setActiveFocus(currentWeekData?.focus || 'General Fitness');
 
       let finalWorkout = { ...scheduledWorkout };
       const readinessData = localStorage.getItem('workoutReadiness');
@@ -60,7 +67,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
       if (readinessData) {
         const { score } = JSON.parse(readinessData);
         if (score < 50) {
-          setAdjustmentReason("Coach Note: Readiness is low. I've reduced weight by 10% and removed 1 set per exercise to prioritize recovery.");
+          setAdjustmentReason("Coach Note: Low readiness detected. Volume reduced to prioritize recovery.");
           finalWorkout.exercises = finalWorkout.exercises.map((ex: any) => ({
             ...ex,
             sets: Math.max(1, ex.sets - 1),
@@ -76,7 +83,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
     initSession();
   }, [programData]);
 
-  // Handle Set Click (Capture Inputs)
   const handleSetClick = (
     exerciseName: string, 
     setNumber: number, 
@@ -138,7 +144,11 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
           <button onClick={() => router.back()} className="p-2 -ml-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full">
             <ChevronLeft className="w-6 h-6 text-gray-600 dark:text-gray-300" />
           </button>
-          <h1 className="font-bold text-gray-900 dark:text-white truncate">{activeWorkout.workout_name}</h1>
+          <div className="text-center">
+            <h1 className="font-bold text-gray-900 dark:text-white text-sm md:text-base truncate max-w-[200px]">{activeWorkout.workout_name}</h1>
+            {/* ✅ NEW: Show the Phase Focus (e.g. Strength) */}
+            <p className="text-xs text-purple-600 dark:text-purple-400 font-medium">{activeFocus}</p>
+          </div>
           <button className="p-2 -mr-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full">
             <MoreVertical className="w-6 h-6 text-gray-600 dark:text-gray-300" />
           </button>
@@ -152,10 +162,9 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
         )}
       </div>
 
-      {/* Active Workout Content */}
       <div className="max-w-2xl mx-auto p-4 space-y-6">
 
-        {/* 🔥 Warmup Section */}
+        {/* 🔥 Warmup */}
         {activeWorkout.warmups && activeWorkout.warmups.length > 0 && (
           <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-xl border border-orange-100 dark:border-orange-800">
             <h3 className="font-bold text-orange-800 dark:text-orange-200 mb-2 flex items-center gap-2">
@@ -169,7 +178,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
           </div>
         )}
 
-        {/* Exercise List */}
+        {/* Exercises */}
         {activeWorkout.exercises.map((exercise: any, index: number) => (
           <ExerciseCard 
             key={index} 
@@ -180,7 +189,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
           />
         ))}
 
-        {/* ❄️ Cool-down Section */}
+        {/* ❄️ Cool-down */}
         {activeWorkout.cool_down && activeWorkout.cool_down.length > 0 && (
           <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
             <h3 className="font-bold text-blue-800 dark:text-blue-200 mb-2 flex items-center gap-2">
@@ -208,7 +217,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
         </button>
       </div>
 
-      {/* Modals */}
+      {/* Modals (Keep existing logic) */}
       {coachingModal && (
         <PreSetCoaching 
           exerciseName={coachingModal.exerciseName}
@@ -241,8 +250,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   );
 }
 
-// ✅ Helper Components with Dark Mode
-
+// ✅ HELPER: Exercise Card with ALL Goals Visible
 function ExerciseCard({ 
   exercise, 
   index, 
@@ -270,16 +278,23 @@ function ExerciseCard({
           </div>
           <h3 className="text-lg font-bold text-gray-900 dark:text-white">{exercise.exercise_name}</h3>
           
-          {/* Suggested Weight */}
-          {exercise.suggested_weight_kg > 0 && (
-            <p className="text-sm text-green-600 dark:text-green-400 font-medium mt-1 flex items-center gap-1">
-               <Dumbbell className="w-3.5 h-3.5" />
-               Target: {exercise.suggested_weight_kg} kg
-            </p>
-          )}
-          
+          {/* ✅ UPDATED: Badges for Goal Parameters */}
+          <div className="flex flex-wrap gap-2 mt-3">
+             {exercise.suggested_weight_kg > 0 && (
+               <span className="inline-flex items-center gap-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 px-2 py-1 rounded-md text-xs font-bold border border-green-100 dark:border-green-800">
+                 <Dumbbell className="w-3 h-3" /> {exercise.suggested_weight_kg}kg
+               </span>
+             )}
+             <span className="inline-flex items-center gap-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 px-2 py-1 rounded-md text-xs font-bold border border-blue-100 dark:border-blue-800">
+               <Repeat className="w-3 h-3" /> {exercise.reps} Reps
+             </span>
+             <span className="inline-flex items-center gap-1 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 px-2 py-1 rounded-md text-xs font-bold border border-orange-100 dark:border-orange-800">
+               <Clock className="w-3 h-3" /> {exercise.rest_seconds}s Rest
+             </span>
+          </div>
+
           {exercise.notes && (
-            <p className="text-xs text-purple-600 dark:text-purple-400 mt-1 flex items-center gap-1">
+            <p className="text-xs text-purple-600 dark:text-purple-400 mt-2 flex items-center gap-1 italic">
               <AlertTriangle className="w-3 h-3" /> {exercise.notes}
             </p>
           )}
