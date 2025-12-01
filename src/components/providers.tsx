@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-import { ThemeProvider } from 'next-themes'; // ✅ Import ThemeProvider
+import { ThemeProvider } from 'next-themes'; // ✅ Correct import
 import { useState, useEffect } from 'react';
 
 export function Providers({ children }: { children: React.ReactNode }) {
