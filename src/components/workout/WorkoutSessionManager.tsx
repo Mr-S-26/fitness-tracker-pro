@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   ChevronLeft, ChevronRight, MoreVertical, CheckCircle2, 
-  AlertTriangle, Info, AlertCircle, Dumbbell, Clock, Repeat, Flame, Wind, Brain
+  AlertTriangle, Info, AlertCircle, Dumbbell, Clock, Repeat, Flame, Wind, Brain, Activity
 } from 'lucide-react';
 import EnhancedRestTimer from './EnhancedRestTimer';
 import AISetFeedback from '@/components/coaching/AISetFeedback';
@@ -25,13 +25,11 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   const [activeFocus, setActiveFocus] = useState<string>('');
   const [adjustmentReason, setAdjustmentReason] = useState<string | null>(null);
   
-  // Focus Mode State
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<'logger' | 'form'>('logger');
 
   const [showTimer, setShowTimer] = useState(false);
   const [currentRestTime, setCurrentRestTime] = useState(60);
-  // ✅ NEW: Coaching Message to pass to the Timer
   const [coachMessage, setCoachMessage] = useState<string | null>(null);
   
   const [feedbackModal, setFeedbackModal] = useState<any>(null);
@@ -40,14 +38,11 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   useEffect(() => {
     const initSession = () => {
       const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-      // Default to Week 1 for MVP logic
       const currentWeekData = programData.weeks.find((w: any) => w.week_number === 1);
       const scheduledWorkout = currentWeekData?.workouts.find((w: any) => w.day === today);
 
       if (scheduledWorkout) {
         let finalWorkout = { ...scheduledWorkout };
-        
-        // Readiness Check Logic (Preserved)
         const readinessData = localStorage.getItem('workoutReadiness');
         if (readinessData) {
           const { score } = JSON.parse(readinessData);
@@ -60,7 +55,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
             }));
           }
         }
-
         setActiveWorkout(finalWorkout);
         setActiveFocus(currentWeekData?.focus || 'General Fitness');
       }
@@ -91,26 +85,57 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   const handleFeedbackSave = async (data: any) => {
     if (!feedbackModal) return;
     
-    // ✅ NEW: Instant AI Coaching Logic based on inputs
+    // ✅ NEW: Advanced AI Coaching Logic
     const { rpe, difficulty } = data;
-    let feedback = "";
+    const isBodyweight = feedbackModal.targetWeight === 0; // Check if user lifted 0kg
+    const goal = userProfile?.primary_goal || 'general_fitness';
     
+    let feedback = "";
+    let extraRest = 0;
+
+    // 1. Analyze Intensity
     if (rpe >= 9 || difficulty === 'failure') {
-      feedback = "⚠️ Near failure! Rest extra 30s. Consider dropping weight by 5% if form broke down.";
+      // 🚨 High Intensity Logic
+      if (goal === 'strength' || goal === 'power') {
+        extraRest = 60; // Strength needs more time
+        feedback = `⚠️ Near failure! I added +${extraRest}s rest for full CNS recovery.`;
+      } else if (goal === 'fat_loss') {
+        extraRest = 30; // Fat loss needs density, but safety first
+        feedback = `⚠️ That was max effort! Added +${extraRest}s rest to catch your breath.`;
+      } else {
+        extraRest = 45; // General/Hypertrophy
+        feedback = `⚠️ Pushing hard! I added +${extraRest}s rest so you can hit the next set.`;
+      }
+
+      // Advice on Weight
+      if (isBodyweight) {
+        feedback += " If form broke down, try an easier variation or fewer reps.";
+      } else {
+        feedback += " Consider dropping weight by 5% if your form broke down.";
+      }
+
     } else if (rpe >= 7 && rpe <= 8.5) {
-      feedback = "🔥 Perfect intensity. Keep this weight for the next set.";
+      // 🔥 Perfect Zone
+      feedback = "🔥 Perfect intensity! Keep this weight/pace for the next set.";
+    
     } else if (rpe < 6 || difficulty === 'easy') {
-      feedback = "🪶 Looks too light! Try increasing weight by 2.5kg - 5kg on the next set.";
+      // 🪶 Too Light
+      if (isBodyweight) {
+        feedback = "🪶 Too easy? Try slowing down the tempo (3s down) or adding reps.";
+      } else {
+        feedback = "🪶 Looks light! Try increasing weight by 2.5kg - 5kg next set.";
+      }
     } else {
-      feedback = "👍 Good set. Focus on explosive tempo for the next one.";
+      feedback = "👍 Solid set. Focus on controlling the eccentric (lowering) phase next.";
     }
 
-    setCoachMessage(feedback); // Pass this to the timer
+    setCoachMessage(feedback);
     setFeedbackModal(null);
-    setCurrentRestTime(feedbackModal.restSeconds);
+    
+    // ✅ AUTO-UPDATE TIMER
+    setCurrentRestTime(feedbackModal.restSeconds + extraRest);
     setShowTimer(true);
 
-    // Save to DB (Preserved)
     logSetResult(
       null, 
       feedbackModal.exerciseName,
@@ -125,7 +150,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
       setActiveTab('logger');
       window.scrollTo(0,0);
     } else {
-      // Finish Workout Logic (Preserved)
       const totalSets = activeWorkout.exercises.reduce((acc: number, ex: any) => acc + ex.sets, 0);
       finishWorkoutSession(null, 3600, 5000, totalSets);
     }
@@ -147,42 +171,15 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   };
 
   if (loading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center text-white">Loading...</div>;
-  
-  if (!activeWorkout) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col items-center justify-center p-6 text-center">
-      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Rest Day</h2>
-      <button onClick={() => router.push('/dashboard')} className="text-purple-600 dark:text-purple-400 font-medium hover:underline">Return to Dashboard</button>
-    </div>
-  );
+  if (!activeWorkout) return <div className="min-h-screen p-6 text-center">Rest Day</div>;
 
   const currentExercise = activeWorkout.exercises[currentExerciseIndex];
   const isLastExercise = currentExerciseIndex === activeWorkout.exercises.length - 1;
 
-  // Render Media Helper (Video/Image)
-  const renderMedia = () => {
-    const url = currentExercise.video_url;
-    if (!url) {
-      return (
-        <div className="text-gray-600 dark:text-gray-400 flex flex-col items-center justify-center h-full">
-          <Dumbbell className="w-12 h-12 mb-2 opacity-20" />
-          <p className="text-xs opacity-40">No Visual Available</p>
-        </div>
-      );
-    }
-    if (url.includes('youtube') || url.includes('youtu.be')) {
-      return (
-        <iframe src={url} title={currentExercise.exercise_name} className="w-full h-full object-cover" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
-      );
-    }
-    return (
-      <img src={url} alt={currentExercise.exercise_name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-    );
-  };
-
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24 transition-colors">
       
-      {/* 1. Header */}
+      {/* Header */}
       <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10 px-4 h-16 flex items-center justify-between">
         <button onClick={() => router.back()} className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
           <ChevronLeft className="w-6 h-6 text-gray-600 dark:text-gray-300" />
@@ -200,32 +197,43 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
         </button>
       </div>
 
-      {/* 2. Media Area */}
-      <div className="bg-black aspect-video w-full relative flex items-center justify-center overflow-hidden group">
-        {renderMedia()}
-        <div className="absolute bottom-4 left-4 flex gap-2 pointer-events-none z-10">
-           {currentExercise.suggested_weight_kg > 0 && (
-             <span className="bg-black/60 backdrop-blur-md text-white px-2 py-1 rounded text-xs font-bold flex items-center gap-1">
-               <Dumbbell className="w-3 h-3" /> {currentExercise.suggested_weight_kg}kg
-             </span>
-           )}
-           <span className="bg-black/60 backdrop-blur-md text-white px-2 py-1 rounded text-xs font-bold flex items-center gap-1">
-             <Repeat className="w-3 h-3" /> {currentExercise.reps}
-           </span>
-           <span className="bg-black/60 backdrop-blur-md text-white px-2 py-1 rounded text-xs font-bold flex items-center gap-1">
-             <Clock className="w-3 h-3" /> {currentExercise.rest_seconds}s
-           </span>
-        </div>
-      </div>
-
-      {/* 3. Tabs */}
+      {/* Tabs */}
       <div className="flex border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
-        <button onClick={() => setActiveTab('logger')} className={`flex-1 py-3 text-sm font-bold text-center border-b-2 transition-colors ${activeTab === 'logger' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>Logger</button>
-        <button onClick={() => setActiveTab('form')} className={`flex-1 py-3 text-sm font-bold text-center border-b-2 transition-colors ${activeTab === 'form' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>Form Guide</button>
+        <button onClick={() => setActiveTab('logger')} className={`flex-1 py-3 text-sm font-bold text-center border-b-2 transition-colors ${activeTab === 'logger' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500'}`}>Logger</button>
+        <button onClick={() => setActiveTab('form')} className={`flex-1 py-3 text-sm font-bold text-center border-b-2 transition-colors ${activeTab === 'form' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500'}`}>Form Guide</button>
       </div>
 
-      {/* 4. Content Area */}
+      {/* Content Area */}
       <div className="p-4 min-h-[300px]">
+        
+        {/* ✅ RESTORED: Target Stats Card */}
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 mb-6 shadow-sm flex justify-between items-center">
+           <div className="text-center flex-1 border-r border-gray-100 dark:border-gray-800">
+              <span className="block text-xs text-gray-400 uppercase font-bold mb-1 flex items-center justify-center gap-1">
+                <Dumbbell className="w-3 h-3" /> Weight
+              </span>
+              <span className="text-xl font-black text-gray-900 dark:text-white">
+                {currentExercise.suggested_weight_kg > 0 ? `${currentExercise.suggested_weight_kg}kg` : 'BW'}
+              </span>
+           </div>
+           <div className="text-center flex-1 border-r border-gray-100 dark:border-gray-800">
+              <span className="block text-xs text-gray-400 uppercase font-bold mb-1 flex items-center justify-center gap-1">
+                <Repeat className="w-3 h-3" /> Reps
+              </span>
+              <span className="text-xl font-black text-gray-900 dark:text-white">
+                {currentExercise.reps}
+              </span>
+           </div>
+           <div className="text-center flex-1">
+              <span className="block text-xs text-gray-400 uppercase font-bold mb-1 flex items-center justify-center gap-1">
+                <Clock className="w-3 h-3" /> Rest
+              </span>
+              <span className="text-xl font-black text-gray-900 dark:text-white">
+                {currentExercise.rest_seconds}s
+              </span>
+           </div>
+        </div>
+
         {adjustmentReason && (
           <div className="bg-blue-50 dark:bg-blue-900/20 px-4 py-3 mb-4 rounded-xl border border-blue-100 dark:border-blue-800 flex gap-3">
             <AlertTriangle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
@@ -238,7 +246,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
             <motion.div 
               key="logger"
               initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
-              transition={{ duration: 0.2 }}
               className="space-y-4"
             >
               {currentExerciseIndex === 0 && activeWorkout.warmups?.length > 0 && (
@@ -258,7 +265,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
                   {Array.from({ length: currentExercise.sets }).map((_, i) => (
                     <SetRow 
-                      // ✅ FIX: Unique Key resets state on exercise change
+                      // ✅ FIX: Unique key forces reset on exercise change
                       key={`${currentExercise.exercise_name}-${i}`} 
                       setNumber={i + 1} 
                       targetReps={currentExercise.reps}
@@ -269,13 +276,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
                 </div>
               </div>
               
-              {currentExercise.notes && (
-                <div className="bg-purple-50 dark:bg-purple-900/10 p-3 rounded-lg flex gap-3 items-start border border-purple-100 dark:border-purple-800">
-                  <Info className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0 mt-0.5" />
-                  <p className="text-sm text-purple-800 dark:text-purple-200">{currentExercise.notes}</p>
-                </div>
-              )}
-
               {/* Cooldown */}
               {isLastExercise && activeWorkout.cool_down?.length > 0 && (
                 <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 mt-6">
@@ -312,7 +312,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
       
       {feedbackModal && <AISetFeedback {...feedbackModal} onSave={handleFeedbackSave} onCancel={() => setFeedbackModal(null)} />}
       
-      {/* ✅ Pass coachMessage to timer */}
       {showTimer && <EnhancedRestTimer initialSeconds={currentRestTime} coachMessage={coachMessage} onComplete={() => setShowTimer(false)} onClose={() => setShowTimer(false)} />}
     </div>
   );

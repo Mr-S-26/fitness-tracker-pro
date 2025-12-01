@@ -6,7 +6,7 @@ import { motion } from 'framer-motion';
 
 interface Props {
   initialSeconds: number;
-  coachMessage?: string | null; // ✅ Receive message
+  coachMessage?: string | null;
   onComplete: () => void;
   onClose: () => void;
 }
@@ -23,10 +23,11 @@ export default function EnhancedRestTimer({ initialSeconds, coachMessage, onComp
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
       const ctx = audioContextRef.current;
-      if (ctx?.state === 'suspended') {
+      
+      // ✅ FIX: Force resume context (fixes "no sound" on Chrome/iOS)
+      if (ctx.state === 'suspended') {
         ctx.resume();
       }
-      if (!ctx) return;
 
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -46,11 +47,13 @@ export default function EnhancedRestTimer({ initialSeconds, coachMessage, onComp
   };
 
   useEffect(() => {
-    // 🚨 Completion Logic
+    // Play a "start" beep when timer opens
+    playBeep(600, 0.1);
+  }, []);
+
+  useEffect(() => {
     if (timeLeft <= 0) {
-      playBeep(1200, 0.5); // High pitch finished beep
-      
-      // Small buffer to ensure UI updates before closing
+      playBeep(1200, 0.5); // 🚨 Final high beep
       const timeout = setTimeout(() => {
         onComplete();
       }, 500);
@@ -61,7 +64,7 @@ export default function EnhancedRestTimer({ initialSeconds, coachMessage, onComp
 
     // 🔊 Countdown Sound (3, 2, 1)
     if (timeLeft <= 3 && timeLeft > 0) {
-      playBeep(600, 0.1); // Low beep
+      playBeep(600, 0.1); 
     }
 
     const timer = setInterval(() => {
@@ -77,11 +80,7 @@ export default function EnhancedRestTimer({ initialSeconds, coachMessage, onComp
     <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
       <div className="bg-white dark:bg-gray-900 w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden p-6 relative text-center border border-gray-200 dark:border-gray-800">
         
-        {/* Close Button */}
-        <button 
-          onClick={onClose}
-          className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors"
-        >
+        <button onClick={onClose} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors">
           <X className="w-6 h-6" />
         </button>
 
@@ -103,60 +102,21 @@ export default function EnhancedRestTimer({ initialSeconds, coachMessage, onComp
 
         {/* Timer Circle */}
         <div className="relative w-48 h-48 mx-auto mb-8">
-          {/* Background Ring */}
           <svg className="w-full h-full transform -rotate-90">
-            <circle
-              cx="96" cy="96" r="88"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="12"
-              className="text-gray-100 dark:text-gray-800"
-            />
-            {/* Progress Ring */}
-            <circle
-              cx="96" cy="96" r="88"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="12"
-              strokeLinecap="round"
-              strokeDasharray={2 * Math.PI * 88}
-              strokeDashoffset={2 * Math.PI * 88 * (progress / 100)} 
-              className="text-purple-600 transition-all duration-1000 ease-linear"
-            />
+            <circle cx="96" cy="96" r="88" fill="none" stroke="currentColor" strokeWidth="12" className="text-gray-100 dark:text-gray-800" />
+            <circle cx="96" cy="96" r="88" fill="none" stroke="currentColor" strokeWidth="12" strokeLinecap="round" strokeDasharray={2 * Math.PI * 88} strokeDashoffset={2 * Math.PI * 88 * (progress / 100)} className="text-purple-600 transition-all duration-1000 ease-linear" />
           </svg>
-          
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-6xl font-black tabular-nums tracking-tighter text-gray-900 dark:text-white">
-              {timeLeft}
-            </span>
-            <span className="text-sm font-bold text-gray-400 uppercase tracking-widest mt-1">
-              Seconds
-            </span>
+            <span className="text-6xl font-black tabular-nums tracking-tighter text-gray-900 dark:text-white">{timeLeft}</span>
+            <span className="text-sm font-bold text-gray-400 uppercase tracking-widest mt-1">Seconds</span>
           </div>
         </div>
 
         {/* Controls */}
         <div className="flex items-center justify-center gap-4">
-          <button 
-            onClick={() => setTimeLeft(prev => prev + 10)}
-            className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-white font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-          >
-            +10
-          </button>
-
-          <button 
-            onClick={() => setIsPaused(!isPaused)}
-            className="w-16 h-16 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 flex items-center justify-center hover:scale-105 transition-transform shadow-lg"
-          >
-            {isPaused ? <Play className="w-8 h-8 ml-1" /> : <Pause className="w-8 h-8" />}
-          </button>
-
-          <button 
-            onClick={onComplete}
-            className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-          >
-            <SkipForward className="w-5 h-5" />
-          </button>
+          <button onClick={() => setTimeLeft(prev => prev + 10)} className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-white font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">+10</button>
+          <button onClick={() => setIsPaused(!isPaused)} className="w-16 h-16 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 flex items-center justify-center hover:scale-105 transition-transform shadow-lg">{isPaused ? <Play className="w-8 h-8 ml-1" /> : <Pause className="w-8 h-8" />}</button>
+          <button onClick={onComplete} className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"><SkipForward className="w-5 h-5" /></button>
         </div>
 
       </div>
