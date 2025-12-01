@@ -31,6 +31,8 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
 
   const [showTimer, setShowTimer] = useState(false);
   const [currentRestTime, setCurrentRestTime] = useState(60);
+  // ✅ NEW: Coaching Message to pass to the Timer
+  const [coachMessage, setCoachMessage] = useState<string | null>(null);
   
   const [feedbackModal, setFeedbackModal] = useState<any>(null);
   const [coachingModal, setCoachingModal] = useState<any>(null);
@@ -38,14 +40,14 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   useEffect(() => {
     const initSession = () => {
       const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-      // Logic to find the correct week based on start date (Defaulting to W1 for MVP)
+      // Default to Week 1 for MVP logic
       const currentWeekData = programData.weeks.find((w: any) => w.week_number === 1);
       const scheduledWorkout = currentWeekData?.workouts.find((w: any) => w.day === today);
 
       if (scheduledWorkout) {
         let finalWorkout = { ...scheduledWorkout };
         
-        // Readiness Check Logic
+        // Readiness Check Logic (Preserved)
         const readinessData = localStorage.getItem('workoutReadiness');
         if (readinessData) {
           const { score } = JSON.parse(readinessData);
@@ -88,10 +90,27 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
 
   const handleFeedbackSave = async (data: any) => {
     if (!feedbackModal) return;
+    
+    // ✅ NEW: Instant AI Coaching Logic based on inputs
+    const { rpe, difficulty } = data;
+    let feedback = "";
+    
+    if (rpe >= 9 || difficulty === 'failure') {
+      feedback = "⚠️ Near failure! Rest extra 30s. Consider dropping weight by 5% if form broke down.";
+    } else if (rpe >= 7 && rpe <= 8.5) {
+      feedback = "🔥 Perfect intensity. Keep this weight for the next set.";
+    } else if (rpe < 6 || difficulty === 'easy') {
+      feedback = "🪶 Looks too light! Try increasing weight by 2.5kg - 5kg on the next set.";
+    } else {
+      feedback = "👍 Good set. Focus on explosive tempo for the next one.";
+    }
+
+    setCoachMessage(feedback); // Pass this to the timer
     setFeedbackModal(null);
     setCurrentRestTime(feedbackModal.restSeconds);
     setShowTimer(true);
 
+    // Save to DB (Preserved)
     logSetResult(
       null, 
       feedbackModal.exerciseName,
@@ -106,7 +125,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
       setActiveTab('logger');
       window.scrollTo(0,0);
     } else {
-      // Finish Workout Logic
+      // Finish Workout Logic (Preserved)
       const totalSets = activeWorkout.exercises.reduce((acc: number, ex: any) => acc + ex.sets, 0);
       finishWorkoutSession(null, 3600, 5000, totalSets);
     }
@@ -139,6 +158,27 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   const currentExercise = activeWorkout.exercises[currentExerciseIndex];
   const isLastExercise = currentExerciseIndex === activeWorkout.exercises.length - 1;
 
+  // Render Media Helper (Video/Image)
+  const renderMedia = () => {
+    const url = currentExercise.video_url;
+    if (!url) {
+      return (
+        <div className="text-gray-600 dark:text-gray-400 flex flex-col items-center justify-center h-full">
+          <Dumbbell className="w-12 h-12 mb-2 opacity-20" />
+          <p className="text-xs opacity-40">No Visual Available</p>
+        </div>
+      );
+    }
+    if (url.includes('youtube') || url.includes('youtu.be')) {
+      return (
+        <iframe src={url} title={currentExercise.exercise_name} className="w-full h-full object-cover" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+      );
+    }
+    return (
+      <img src={url} alt={currentExercise.exercise_name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24 transition-colors">
       
@@ -160,57 +200,32 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
         </button>
       </div>
 
-      {/* 2. Tabs */}
-      <div className="flex border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
-        <button 
-          onClick={() => setActiveTab('logger')}
-          className={`flex-1 py-3 text-sm font-bold text-center border-b-2 transition-colors ${
-            activeTab === 'logger' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500 dark:text-gray-400'
-          }`}
-        >
-          Logger
-        </button>
-        <button 
-          onClick={() => setActiveTab('form')}
-          className={`flex-1 py-3 text-sm font-bold text-center border-b-2 transition-colors ${
-            activeTab === 'form' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500 dark:text-gray-400'
-          }`}
-        >
-          Form Guide
-        </button>
+      {/* 2. Media Area */}
+      <div className="bg-black aspect-video w-full relative flex items-center justify-center overflow-hidden group">
+        {renderMedia()}
+        <div className="absolute bottom-4 left-4 flex gap-2 pointer-events-none z-10">
+           {currentExercise.suggested_weight_kg > 0 && (
+             <span className="bg-black/60 backdrop-blur-md text-white px-2 py-1 rounded text-xs font-bold flex items-center gap-1">
+               <Dumbbell className="w-3 h-3" /> {currentExercise.suggested_weight_kg}kg
+             </span>
+           )}
+           <span className="bg-black/60 backdrop-blur-md text-white px-2 py-1 rounded text-xs font-bold flex items-center gap-1">
+             <Repeat className="w-3 h-3" /> {currentExercise.reps}
+           </span>
+           <span className="bg-black/60 backdrop-blur-md text-white px-2 py-1 rounded text-xs font-bold flex items-center gap-1">
+             <Clock className="w-3 h-3" /> {currentExercise.rest_seconds}s
+           </span>
+        </div>
       </div>
 
-      {/* 3. Content Area */}
-      <div className="p-4 min-h-[300px]">
-        
-        {/* ✅ NEW: Stats Card (Replaces the Video) */}
-        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 mb-6 shadow-sm flex justify-between items-center">
-           <div className="text-center flex-1 border-r border-gray-100 dark:border-gray-800">
-              <span className="block text-xs text-gray-400 uppercase font-bold mb-1 flex items-center justify-center gap-1">
-                <Dumbbell className="w-3 h-3" /> Weight
-              </span>
-              <span className="text-xl font-black text-gray-900 dark:text-white">
-                {currentExercise.suggested_weight_kg > 0 ? `${currentExercise.suggested_weight_kg}kg` : 'BW'}
-              </span>
-           </div>
-           <div className="text-center flex-1 border-r border-gray-100 dark:border-gray-800">
-              <span className="block text-xs text-gray-400 uppercase font-bold mb-1 flex items-center justify-center gap-1">
-                <Repeat className="w-3 h-3" /> Reps
-              </span>
-              <span className="text-xl font-black text-gray-900 dark:text-white">
-                {currentExercise.reps}
-              </span>
-           </div>
-           <div className="text-center flex-1">
-              <span className="block text-xs text-gray-400 uppercase font-bold mb-1 flex items-center justify-center gap-1">
-                <Clock className="w-3 h-3" /> Rest
-              </span>
-              <span className="text-xl font-black text-gray-900 dark:text-white">
-                {currentExercise.rest_seconds}s
-              </span>
-           </div>
-        </div>
+      {/* 3. Tabs */}
+      <div className="flex border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+        <button onClick={() => setActiveTab('logger')} className={`flex-1 py-3 text-sm font-bold text-center border-b-2 transition-colors ${activeTab === 'logger' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>Logger</button>
+        <button onClick={() => setActiveTab('form')} className={`flex-1 py-3 text-sm font-bold text-center border-b-2 transition-colors ${activeTab === 'form' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>Form Guide</button>
+      </div>
 
+      {/* 4. Content Area */}
+      <div className="p-4 min-h-[300px]">
         {adjustmentReason && (
           <div className="bg-blue-50 dark:bg-blue-900/20 px-4 py-3 mb-4 rounded-xl border border-blue-100 dark:border-blue-800 flex gap-3">
             <AlertTriangle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
@@ -226,19 +241,13 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
               transition={{ duration: 0.2 }}
               className="space-y-4"
             >
-              {/* Warmups (First Exercise Only) */}
               {currentExerciseIndex === 0 && activeWorkout.warmups?.length > 0 && (
                 <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-xl border border-orange-100 dark:border-orange-800 mb-4">
-                  <h3 className="font-bold text-orange-800 dark:text-orange-200 mb-2 flex items-center gap-2 text-sm">
-                    <Flame className="w-4 h-4" /> Warm-up Routine
-                  </h3>
-                  <ul className="list-disc list-inside text-xs text-orange-700 dark:text-orange-300 space-y-1">
-                    {activeWorkout.warmups.map((w: string, i: number) => <li key={i}>{w}</li>)}
-                  </ul>
+                  <h3 className="font-bold text-orange-800 dark:text-orange-200 mb-2 flex items-center gap-2 text-sm"><Flame className="w-4 h-4" /> Warm-up Routine</h3>
+                  <ul className="list-disc list-inside text-xs text-orange-700 dark:text-orange-300 space-y-1">{activeWorkout.warmups.map((w: string, i: number) => <li key={i}>{w}</li>)}</ul>
                 </div>
               )}
 
-              {/* Set Logger */}
               <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
                 <div className="grid grid-cols-10 gap-2 p-3 bg-gray-50 dark:bg-gray-800/50 text-xs font-bold text-gray-500 dark:text-gray-400 text-center border-b border-gray-100 dark:border-gray-800">
                   <div className="col-span-2">SET</div>
@@ -249,7 +258,8 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
                   {Array.from({ length: currentExercise.sets }).map((_, i) => (
                     <SetRow 
-                      key={i} 
+                      // ✅ FIX: Unique Key resets state on exercise change
+                      key={`${currentExercise.exercise_name}-${i}`} 
                       setNumber={i + 1} 
                       targetReps={currentExercise.reps}
                       suggestedWeight={currentExercise.suggested_weight_kg}
@@ -266,15 +276,11 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
                 </div>
               )}
 
-              {/* Cooldown (Last Exercise Only) */}
+              {/* Cooldown */}
               {isLastExercise && activeWorkout.cool_down?.length > 0 && (
                 <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 mt-6">
-                  <h3 className="font-bold text-blue-800 dark:text-blue-200 mb-2 flex items-center gap-2 text-sm">
-                    <Wind className="w-4 h-4" /> Cool-down
-                  </h3>
-                  <ul className="list-disc list-inside text-xs text-blue-700 dark:text-blue-300 space-y-1">
-                    {activeWorkout.cool_down.map((c: string, i: number) => <li key={i}>{c}</li>)}
-                  </ul>
+                  <h3 className="font-bold text-blue-800 dark:text-blue-200 mb-2 flex items-center gap-2 text-sm"><Wind className="w-4 h-4" /> Cool-down</h3>
+                  <ul className="list-disc list-inside text-xs text-blue-700 dark:text-blue-300 space-y-1">{activeWorkout.cool_down.map((c: string, i: number) => <li key={i}>{c}</li>)}</ul>
                 </div>
               )}
             </motion.div>
@@ -282,97 +288,36 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
             <motion.div 
               key="form"
               initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.2 }}
               className="space-y-6"
             >
               <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
-                <h3 className="font-bold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-2 text-sm">
-                  <CheckCircle2 className="w-4 h-4" /> Perfect Form
-                </h3>
-                <ul className="space-y-2">
-                  {currentExercise.execution_cues?.length > 0 ? (
-                    currentExercise.execution_cues.map((cue: string, i: number) => (
-                      <li key={i} className="text-sm text-blue-700 dark:text-blue-200 flex gap-2 items-start">
-                        <span className="w-1.5 h-1.5 bg-blue-400 rounded-full mt-1.5 flex-shrink-0" />
-                        {cue}
-                      </li>
-                    ))
-                  ) : <p className="text-sm text-gray-500 italic">No cues available.</p>}
-                </ul>
+                <h3 className="font-bold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-2 text-sm"><CheckCircle2 className="w-4 h-4" /> Perfect Form</h3>
+                <ul className="space-y-2">{currentExercise.execution_cues?.length > 0 ? currentExercise.execution_cues.map((cue: string, i: number) => <li key={i} className="text-sm text-blue-700 dark:text-blue-200 flex gap-2 items-start"><span className="w-1.5 h-1.5 bg-blue-400 rounded-full mt-1.5 flex-shrink-0" />{cue}</li>) : <p className="text-sm text-gray-500 italic">No cues available.</p>}</ul>
               </div>
-
               <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-800">
-                <h3 className="font-bold text-red-800 dark:text-red-300 mb-2 flex items-center gap-2 text-sm">
-                  <AlertCircle className="w-4 h-4" /> Common Mistakes
-                </h3>
-                <ul className="space-y-2">
-                  {currentExercise.common_mistakes?.length > 0 ? (
-                    currentExercise.common_mistakes.map((mistake: string, i: number) => (
-                      <li key={i} className="text-sm text-red-700 dark:text-red-200 flex gap-2 items-start">
-                        <span className="w-1.5 h-1.5 bg-red-400 rounded-full mt-1.5 flex-shrink-0" />
-                        {mistake}
-                      </li>
-                    ))
-                  ) : <p className="text-sm text-gray-500 italic">No mistakes listed.</p>}
-                </ul>
+                <h3 className="font-bold text-red-800 dark:text-red-300 mb-2 flex items-center gap-2 text-sm"><AlertCircle className="w-4 h-4" /> Common Mistakes</h3>
+                <ul className="space-y-2">{currentExercise.common_mistakes?.length > 0 ? currentExercise.common_mistakes.map((mistake: string, i: number) => <li key={i} className="text-sm text-red-700 dark:text-red-200 flex gap-2 items-start"><span className="w-1.5 h-1.5 bg-red-400 rounded-full mt-1.5 flex-shrink-0" />{mistake}</li>) : <p className="text-sm text-gray-500 italic">No mistakes listed.</p>}</ul>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* 5. Sticky Footer Navigation */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex gap-4 z-20 safe-area-pb">
-        <button 
-          onClick={handlePrevExercise}
-          disabled={currentExerciseIndex === 0}
-          className="px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30 hover:bg-gray-50 dark:hover:bg-gray-800"
-        >
-          <ChevronLeft className="w-6 h-6" />
-        </button>
-        <button 
-          onClick={handleNextExercise}
-          className={`flex-1 py-3 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-2 transition-colors ${
-            isLastExercise 
-              ? 'bg-green-600 hover:bg-green-700 text-white' 
-              : 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'
-          }`}
-        >
-          {isLastExercise ? 'Finish Workout' : 'Next Exercise'} 
-          {isLastExercise ? <CheckCircle2 className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-        </button>
+        <button onClick={handlePrevExercise} disabled={currentExerciseIndex === 0} className="px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30 hover:bg-gray-50 dark:hover:bg-gray-800"><ChevronLeft className="w-6 h-6" /></button>
+        <button onClick={handleNextExercise} className={`flex-1 py-3 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-2 transition-colors ${isLastExercise ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'}`}>{isLastExercise ? 'Finish Workout' : 'Next Exercise'} {isLastExercise ? <CheckCircle2 className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}</button>
       </div>
 
-      {/* Modals */}
-      {coachingModal && (
-        <PreSetCoaching 
-          {...coachingModal}
-          onReady={() => setCoachingModal(null)}
-          onSkip={() => setCoachingModal(null)}
-        />
-      )}
-
-      {feedbackModal && (
-        <AISetFeedback 
-          {...feedbackModal}
-          onSave={handleFeedbackSave} 
-          onCancel={() => setFeedbackModal(null)} 
-        />
-      )}
+      {coachingModal && <PreSetCoaching {...coachingModal} onReady={() => setCoachingModal(null)} onSkip={() => setCoachingModal(null)} />}
       
-      {showTimer && (
-        <EnhancedRestTimer 
-          initialSeconds={currentRestTime} 
-          onComplete={() => setShowTimer(false)}
-          onClose={() => setShowTimer(false)} 
-        />
-      )}
-
+      {feedbackModal && <AISetFeedback {...feedbackModal} onSave={handleFeedbackSave} onCancel={() => setFeedbackModal(null)} />}
+      
+      {/* ✅ Pass coachMessage to timer */}
+      {showTimer && <EnhancedRestTimer initialSeconds={currentRestTime} coachMessage={coachMessage} onComplete={() => setShowTimer(false)} onClose={() => setShowTimer(false)} />}
     </div>
   );
 }
 
-// Sub-component: Set Row
 function SetRow({ setNumber, targetReps, suggestedWeight, onTrigger }: { setNumber: number, targetReps: string, suggestedWeight: number, onTrigger: (w: number, r: string) => void }) {
   const [completed, setCompleted] = useState(false);
   const [weight, setWeight] = useState(suggestedWeight ? String(suggestedWeight) : '');
@@ -385,40 +330,10 @@ function SetRow({ setNumber, targetReps, suggestedWeight, onTrigger }: { setNumb
 
   return (
     <div className={`grid grid-cols-10 gap-2 p-3 items-center transition-colors ${completed ? 'bg-green-50 dark:bg-green-900/20' : ''}`}>
-      <div className="col-span-2 flex justify-center">
-        <span className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-bold text-gray-500 dark:text-gray-400">
-          {setNumber}
-        </span>
-      </div>
-      <div className="col-span-3">
-        <input 
-          type="number" 
-          value={weight} 
-          onChange={(e) => setWeight(e.target.value)}
-          placeholder={String(suggestedWeight || 0)}
-          className="w-full text-center bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg py-2 text-sm font-bold text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none"
-        />
-      </div>
-      <div className="col-span-3">
-        <input 
-          type="text" 
-          value={reps} 
-          onChange={(e) => setReps(e.target.value)}
-          placeholder={targetReps}
-          className="w-full text-center bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg py-2 text-sm font-bold text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none"
-        />
-      </div>
-      <div className="col-span-2 flex justify-center">
-        <motion.button 
-          whileTap={{ scale: 0.9 }}
-          onClick={handleCheck}
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
-            completed ? 'bg-green-500 text-white shadow-md' : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-300 dark:hover:bg-gray-600'
-          }`}
-        >
-          <CheckCircle2 className="w-5 h-5" />
-        </motion.button>
-      </div>
+      <div className="col-span-2 flex justify-center"><span className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-bold text-gray-500 dark:text-gray-400">{setNumber}</span></div>
+      <div className="col-span-3"><input type="number" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder={String(suggestedWeight || 0)} className="w-full text-center bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg py-2 text-sm font-bold text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none" /></div>
+      <div className="col-span-3"><input type="text" value={reps} onChange={(e) => setReps(e.target.value)} placeholder={targetReps} className="w-full text-center bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg py-2 text-sm font-bold text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none" /></div>
+      <div className="col-span-2 flex justify-center"><motion.button whileTap={{ scale: 0.9 }} onClick={handleCheck} className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${completed ? 'bg-green-500 text-white shadow-md' : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-300 dark:hover:bg-gray-600'}`}><CheckCircle2 className="w-5 h-5" /></motion.button></div>
     </div>
   );
 }
