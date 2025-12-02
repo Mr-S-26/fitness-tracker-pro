@@ -47,11 +47,15 @@ export default function ReviewStep({ formData, program, nutrition, userId, onCom
         available_days_per_week: formData.available_days_per_week || 3,
         session_duration_minutes: formData.session_duration_minutes || 60,
         
-        // ✅ FIX: Use new fields and map to DB structure
+        // ✅ FIX 1: Use new fields and map to DB structure correctly
         preferred_workout_time: formData.preferred_workout_time || null,
         reminders_enabled: formData.reminders_enabled || false,
-        // Backward compatibility: map single time to array
+        // Backward compatibility: map single time to array for older dashboard logic
         preferred_training_times: formData.preferred_workout_time ? [formData.preferred_workout_time] : [],
+        
+        // ✅ FIX 2: Save the Push Notification Token
+        // Without this, the cron job will find users but have no token to send to!
+        push_subscription_data: formData.push_subscription_data || null,
         
         // Equipment
         training_location: formData.training_location || null,
@@ -64,8 +68,8 @@ export default function ReviewStep({ formData, program, nutrition, userId, onCom
         height_cm: formData.height_cm || 170,
         weight_kg: formData.weight_kg || 70,
         body_fat_percentage: formData.body_fat_percentage || null,
-        age: formData.age || 25, // ✅ CRITICAL: Include age
-        sex: formData.sex || 'male', // ✅ CRITICAL: Include sex
+        age: formData.age || 25, 
+        sex: formData.sex || 'male', 
         
         // Lifestyle
         average_sleep_hours: formData.average_sleep_hours || 7,
