@@ -56,7 +56,8 @@ export default function OnboardingPage() {
     // Schedule
     available_days_per_week: 3,
     session_duration_minutes: 60,
-    preferred_training_times: [],
+    preferred_workout_time: '07:00', 
+    reminders_enabled: true,
     
     // Equipment
     training_location: '',

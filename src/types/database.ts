@@ -83,7 +83,12 @@ export interface UserFitnessProfile {
   // Schedule
   available_days_per_week?: number
   session_duration_minutes?: number
-  preferred_training_times?: string[]
+  preferred_training_times?: string[] // Keep optional for backward compat if needed
+  
+  // ✅ NEW: Reminder Fields
+  preferred_workout_time?: string; 
+  reminders_enabled?: boolean;
+  push_subscription_data?: any; // Stores the JSON subscription
   
   // Equipment
   training_location?: TrainingLocation
@@ -95,6 +100,7 @@ export interface UserFitnessProfile {
   // Body Metrics
   height_cm?: number
   weight_kg?: number
+  target_weight_kg?: number;
   body_fat_percentage?: number
   
   // Lifestyle
@@ -326,11 +332,14 @@ export interface OnboardingFormData {
   previous_programs: string
   
   // Step 4: Schedule
-  available_days_per_week: number; // Keep for backward compatibility/stats
-  selected_days?: string[]; // ✅ NEW: Specific days (e.g. ["Monday", "Thursday"])
-  session_duration_minutes: number
-  ppreferred_workout_time: '07:00', // ✅ NEW: Default time
-  reminders_enabled: true, //
+  available_days_per_week: number;
+  selected_days?: string[];
+  session_duration_minutes: number;
+  
+  // ✅ UPDATED: Removed preferred_training_times, added new fields
+  preferred_workout_time?: string; // e.g. "07:00"
+  reminders_enabled?: boolean;
+  push_subscription_data?: any; // Optional JSON
   
   // Step 5: Equipment
   training_location: TrainingLocation | ''
@@ -348,8 +357,17 @@ export interface OnboardingFormData {
   // Step 7: Body Metrics
   height_cm: number
   weight_kg: number
-  target_weight_kg?: number;
+  target_weight_kg?: number; // ✅ NEW
   body_fat_percentage?: number
+  
+  // Strength Stats (Optional)
+  estimated_1rm?: {
+    bench_press?: number;
+    squat?: number;
+    deadlift?: number;
+    overhead_press?: number;
+  };
+  
   age: number
   sex: 'male' | 'female' | 'other'
   
@@ -360,8 +378,8 @@ export interface OnboardingFormData {
   dietary_preferences: DietaryPreference[]
   
   // Step 9: Preferences
-  coaching_style: CoachingStyle; // Remove the '?' to make it required
-  motivation_type: MotivationType; // Remove the '?' to make it required
+  coaching_style: CoachingStyle; 
+  motivation_type: MotivationType;
   wants_voice_coaching: boolean;
 }
 
