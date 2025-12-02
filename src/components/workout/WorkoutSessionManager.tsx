@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   ChevronLeft, ChevronRight, MoreVertical, CheckCircle2, 
-  AlertTriangle, Info, AlertCircle, Dumbbell, Clock, Repeat, Flame, Wind, Brain, Activity
+  AlertTriangle, Info, AlertCircle, Dumbbell, Clock, Repeat, Flame, Wind, Brain
 } from 'lucide-react';
 import EnhancedRestTimer from './EnhancedRestTimer';
 import AISetFeedback from '@/components/coaching/AISetFeedback';
@@ -38,6 +38,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   useEffect(() => {
     const initSession = () => {
       const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+      // Default to Week 1 for MVP logic
       const currentWeekData = programData.weeks.find((w: any) => w.week_number === 1);
       const scheduledWorkout = currentWeekData?.workouts.find((w: any) => w.day === today);
 
@@ -85,54 +86,41 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   const handleFeedbackSave = async (data: any) => {
     if (!feedbackModal) return;
     
-    // ✅ NEW: Advanced AI Coaching Logic
     const { rpe, difficulty } = data;
-    const isBodyweight = feedbackModal.targetWeight === 0; // Check if user lifted 0kg
+    // ✅ SMART: Detect Bodyweight (0kg)
+    const isBodyweight = feedbackModal.targetWeight === 0;
     const goal = userProfile?.primary_goal || 'general_fitness';
     
     let feedback = "";
     let extraRest = 0;
 
-    // 1. Analyze Intensity
+    // Logic: Coaching based on Intensity & Equipment
     if (rpe >= 9 || difficulty === 'failure') {
-      // 🚨 High Intensity Logic
-      if (goal === 'strength' || goal === 'power') {
-        extraRest = 60; // Strength needs more time
-        feedback = `⚠️ Near failure! I added +${extraRest}s rest for full CNS recovery.`;
-      } else if (goal === 'fat_loss') {
-        extraRest = 30; // Fat loss needs density, but safety first
-        feedback = `⚠️ That was max effort! Added +${extraRest}s rest to catch your breath.`;
-      } else {
-        extraRest = 45; // General/Hypertrophy
-        feedback = `⚠️ Pushing hard! I added +${extraRest}s rest so you can hit the next set.`;
-      }
+      if (goal === 'strength') extraRest = 60;
+      else extraRest = 30;
 
-      // Advice on Weight
+      feedback = `⚠️ Near failure! I added +${extraRest}s rest.`;
+      
+      // Context-aware advice
       if (isBodyweight) {
-        feedback += " If form broke down, try an easier variation or fewer reps.";
+        feedback += " Form breaking? Try an easier variation (e.g. knees) or fewer reps.";
       } else {
-        feedback += " Consider dropping weight by 5% if your form broke down.";
+        feedback += " Consider dropping weight by 5% if form broke down.";
       }
 
     } else if (rpe >= 7 && rpe <= 8.5) {
-      // 🔥 Perfect Zone
-      feedback = "🔥 Perfect intensity! Keep this weight/pace for the next set.";
-    
-    } else if (rpe < 6 || difficulty === 'easy') {
-      // 🪶 Too Light
-      if (isBodyweight) {
-        feedback = "🪶 Too easy? Try slowing down the tempo (3s down) or adding reps.";
-      } else {
-        feedback = "🪶 Looks light! Try increasing weight by 2.5kg - 5kg next set.";
-      }
+      feedback = "🔥 Perfect intensity. Keep this pace.";
+    } else if (rpe < 6) {
+      feedback = isBodyweight 
+        ? "🪶 Too easy? Slow down the tempo (3s down) to make it harder." 
+        : "🪶 Looks light! Increase weight by 2.5kg next set.";
     } else {
-      feedback = "👍 Solid set. Focus on controlling the eccentric (lowering) phase next.";
+      feedback = "👍 Solid set. Breathe and reset.";
     }
 
     setCoachMessage(feedback);
     setFeedbackModal(null);
-    
-    // ✅ AUTO-UPDATE TIMER
+    // ✅ AUTO-ADD REST
     setCurrentRestTime(feedbackModal.restSeconds + extraRest);
     setShowTimer(true);
 
@@ -156,9 +144,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
   };
 
   const handlePrevExercise = () => {
-    if (currentExerciseIndex > 0) {
-      setCurrentExerciseIndex(prev => prev - 1);
-    }
+    if (currentExerciseIndex > 0) setCurrentExerciseIndex(prev => prev - 1);
   };
 
   const handleCoachClick = (exerciseName: string, targetReps: string) => {
@@ -175,6 +161,14 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
 
   const currentExercise = activeWorkout.exercises[currentExerciseIndex];
   const isLastExercise = currentExerciseIndex === activeWorkout.exercises.length - 1;
+
+  // Render Media Helper
+  const renderMedia = () => {
+    const url = currentExercise.video_url;
+    if (!url) return <div className="text-gray-500 flex flex-col items-center justify-center h-full"><Dumbbell className="w-12 h-12 mb-2 opacity-20"/><p className="text-xs">No Visual</p></div>;
+    if (url.includes('youtube') || url.includes('youtu.be')) return <iframe src={url} title={currentExercise.exercise_name} className="w-full h-full object-cover" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />;
+    return <img src={url} alt={currentExercise.exercise_name} className="w-full h-full object-cover" onError={(e) => (e.target as HTMLImageElement).style.display='none'} />;
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24 transition-colors">
@@ -195,6 +189,11 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
         <button onClick={() => handleCoachClick(currentExercise.exercise_name, currentExercise.reps)} className="p-2 -mr-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
           <Brain className="w-6 h-6 text-purple-600 dark:text-purple-400" />
         </button>
+      </div>
+
+      {/* Media Area */}
+      <div className="bg-black aspect-video w-full relative flex items-center justify-center overflow-hidden group">
+        {renderMedia()}
       </div>
 
       {/* Tabs */}
@@ -248,13 +247,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
               initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
               className="space-y-4"
             >
-              {currentExerciseIndex === 0 && activeWorkout.warmups?.length > 0 && (
-                <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-xl border border-orange-100 dark:border-orange-800 mb-4">
-                  <h3 className="font-bold text-orange-800 dark:text-orange-200 mb-2 flex items-center gap-2 text-sm"><Flame className="w-4 h-4" /> Warm-up Routine</h3>
-                  <ul className="list-disc list-inside text-xs text-orange-700 dark:text-orange-300 space-y-1">{activeWorkout.warmups.map((w: string, i: number) => <li key={i}>{w}</li>)}</ul>
-                </div>
-              )}
-
               <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
                 <div className="grid grid-cols-10 gap-2 p-3 bg-gray-50 dark:bg-gray-800/50 text-xs font-bold text-gray-500 dark:text-gray-400 text-center border-b border-gray-100 dark:border-gray-800">
                   <div className="col-span-2">SET</div>
@@ -275,14 +267,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
                   ))}
                 </div>
               </div>
-              
-              {/* Cooldown */}
-              {isLastExercise && activeWorkout.cool_down?.length > 0 && (
-                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 mt-6">
-                  <h3 className="font-bold text-blue-800 dark:text-blue-200 mb-2 flex items-center gap-2 text-sm"><Wind className="w-4 h-4" /> Cool-down</h3>
-                  <ul className="list-disc list-inside text-xs text-blue-700 dark:text-blue-300 space-y-1">{activeWorkout.cool_down.map((c: string, i: number) => <li key={i}>{c}</li>)}</ul>
-                </div>
-              )}
             </motion.div>
           ) : (
             <motion.div 
@@ -293,10 +277,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
               <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
                 <h3 className="font-bold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-2 text-sm"><CheckCircle2 className="w-4 h-4" /> Perfect Form</h3>
                 <ul className="space-y-2">{currentExercise.execution_cues?.length > 0 ? currentExercise.execution_cues.map((cue: string, i: number) => <li key={i} className="text-sm text-blue-700 dark:text-blue-200 flex gap-2 items-start"><span className="w-1.5 h-1.5 bg-blue-400 rounded-full mt-1.5 flex-shrink-0" />{cue}</li>) : <p className="text-sm text-gray-500 italic">No cues available.</p>}</ul>
-              </div>
-              <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-800">
-                <h3 className="font-bold text-red-800 dark:text-red-300 mb-2 flex items-center gap-2 text-sm"><AlertCircle className="w-4 h-4" /> Common Mistakes</h3>
-                <ul className="space-y-2">{currentExercise.common_mistakes?.length > 0 ? currentExercise.common_mistakes.map((mistake: string, i: number) => <li key={i} className="text-sm text-red-700 dark:text-red-200 flex gap-2 items-start"><span className="w-1.5 h-1.5 bg-red-400 rounded-full mt-1.5 flex-shrink-0" />{mistake}</li>) : <p className="text-sm text-gray-500 italic">No mistakes listed.</p>}</ul>
               </div>
             </motion.div>
           )}

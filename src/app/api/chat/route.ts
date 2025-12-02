@@ -1,39 +1,26 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
-import { swapExerciseInProgram } from '@/lib/ai/program-modifier'; // ✅ Import the tool
+import { swapExerciseInProgram } from '@/lib/ai/program-modifier'; // ✅ Tool Import
 
 export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // ✅ DEBUG: Check if API Key exists
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  
   if (!process.env.GROQ_API_KEY) {
-    console.error("❌ CRITICAL: GROQ_API_KEY is missing in .env.local");
-    return NextResponse.json({ 
-      role: 'assistant', 
-      content: "System Error: My brain is missing (API Key not found). Please check server logs." 
-    });
+    console.error("❌ CRITICAL: GROQ_API_KEY is missing");
+    return NextResponse.json({ role: 'assistant', content: "System Error: Brain missing." });
   }
 
   const { message, history } = await req.json();
 
-  // 1. Fetch User Context
+  // 1. Fetch User Profile & Injuries (Your existing logic)
   const { data: profile } = await supabase
     .from('user_fitness_profiles')
     .select('*')
     .eq('user_id', user.id)
     .single();
-
-  const { data: recentLogs } = await supabase
-    .from('workout_logs')
-    .select('workout_name, date, total_volume_kg, readiness_score')
-    .eq('user_id', user.id)
-    .order('date', { ascending: false })
-    .limit(3);
 
   const { data: injuries } = await supabase
     .from('user_injuries')
@@ -41,92 +28,109 @@ export async function POST(req: Request) {
     .eq('user_id', user.id)
     .eq('active', true);
 
-  // 2. System Prompt (Updated with Tool Instructions)
+  // 2. ✅ NEW: Fetch Deep Logs (Last 50 sets) for better context
+  const { data: rawLogs } = await supabase
+    .from('workout_logs')
+    .select('workout_name, exercise_name, weight_kg, reps, rpe, date')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  const workoutSummary = groupLogsBySession(rawLogs || []);
+
+  // 3. ✅ NEW: Fetch & Filter Valid Exercises (Smart Library)
+  // Only shows exercises that match the user's equipment to prevent hallucinations
+  const userEquipment = profile?.available_equipment || [];
+  const has = (keyword: string) => userEquipment.some((e: string) => e.toLowerCase().includes(keyword));
+
+  const allowedTypes = ['bodyweight']; 
+  if (has('dumbbell')) allowedTypes.push('dumbbell');
+  if (has('barbell')) allowedTypes.push('barbell');
+  if (has('cable') || has('band')) allowedTypes.push('cable');
+  if (has('gym') || has('commercial')) {
+      allowedTypes.push('machine', 'cable', 'barbell', 'dumbbell');
+  }
+
+  const { data: exerciseList } = await supabase
+    .from('exercises')
+    .select('name')
+    .in('equipment', allowedTypes)
+    .order('name');
+  
+  const validExerciseNames = exerciseList?.map(e => e.name).join(', ');
+
+  // 4. System Prompt (Enhanced)
   const systemPrompt = `
     You are Coach ${profile?.coaching_style || 'Pro'}, an elite Strength & Conditioning expert.
     User: ${profile?.full_name || 'Athlete'}
     Goal: ${profile?.primary_goal?.replace('_', ' ')}
-    Stats: ${profile?.weight_kg}kg, ${profile?.height_cm}cm.
-    Equipment: ${profile?.available_equipment?.join(', ') || 'Standard Gym'}
+    Stats: ${profile?.weight_kg}kg
     
-    **Current Context:**
-    - Recent Workouts: ${JSON.stringify(recentLogs)}
-    - Active Injuries: ${JSON.stringify(injuries)}
-    
+    **YOUR KNOWLEDGE BASE:**
+    - **Valid Exercises:** You must ONLY suggest exercises from this list: [${validExerciseNames}]. Do not invent names.
+    - **Recent Performance:** ${workoutSummary}
+    - **Injuries:** ${JSON.stringify(injuries)}
+
     **CAPABILITIES:**
-    You have the power to modify the user's workout program directly.
+    You can modify the workout program using the "swap_exercise" tool.
 
     **INSTRUCTIONS:**
-    1. If the user asks to **change, swap, or replace** an exercise, you must PERFORM THE ACTION.
-    2. To perform the action, your response must be **ONLY** a JSON object in this format:
-       { "action": "swap_exercise", "target": "EXERCISE_TO_REMOVE", "replacement": "EXERCISE_TO_ADD" }
-    3. Determine the best replacement based on their available equipment and goal.
-    4. If the user is just chatting, reply normally with text.
-    5. Keep text responses short (max 2-3 sentences) and motivating.
+    1. If the user asks to swap/change an exercise, you MUST pick a replacement from the **Valid Exercises** list above.
+    2. To swap, output JSON: { "action": "swap_exercise", "target": "EXERCISE_TO_REMOVE", "replacement": "EXERCISE_TO_ADD" }
+    3. If analyzing workouts, refer to specific weights and reps from "Recent Performance".
+    4. Keep text responses short and motivating.
   `;
 
-  // 3. Call Real AI
+  // 5. Call AI
   try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile', 
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...history,
-          { role: 'user', content: message }
-        ],
-        temperature: 0.5, // Lower temperature to ensure valid JSON output
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: message }],
+        temperature: 0.5,
         max_tokens: 500,
       }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ Groq API Error:', errorText);
-      throw new Error(`Groq API refused: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`Groq API refused: ${response.status}`);
 
     const data = await response.json();
-    let aiContent = data.choices[0]?.message?.content || "I'm focusing on your form right now.";
+    let aiContent = data.choices[0]?.message?.content || "";
 
-    // 4. 🕵️‍♂️ Tool Execution Logic
-    // If the AI output is JSON, it means it wants to run a tool
+    // 6. ✅ NEW: Tool Execution Logic
     if (aiContent.trim().startsWith('{') && aiContent.includes('"action": "swap_exercise"')) {
       try {
         const toolAction = JSON.parse(aiContent);
-        console.log("🛠️ AI Executing Tool:", toolAction);
-        
-        // Run the Modifier
         const result = await swapExerciseInProgram(user.id, toolAction.target, toolAction.replacement);
-        
-        // Overwrite the AI response with the result
-        if (result.success) {
-          aiContent = result.message;
-        } else {
-          aiContent = `⚠️ I tried to swap it, but: ${result.message}`;
-        }
-
+        aiContent = result.success ? result.message : `⚠️ I tried to swap it, but: ${result.message}`;
       } catch (err) {
-        console.error("Tool Execution Failed", err);
-        aiContent = "I tried to update your program, but something went wrong with my database connection.";
+        aiContent = "I tried to update your program, but I ran into a system error.";
       }
     }
 
-    return NextResponse.json({ 
-      role: 'assistant', 
-      content: aiContent 
-    });
+    return NextResponse.json({ role: 'assistant', content: aiContent });
 
   } catch (error) {
-    console.error('Chat Route Error:', error);
-    return NextResponse.json({ 
-      role: 'assistant', 
-      content: "I'm having trouble reaching the AI service. Please check the server logs." 
-    });
+    console.error("Chat Error", error);
+    return NextResponse.json({ role: 'assistant', content: "I'm having trouble connecting. Please try again." });
   }
+}
+
+// Helper: Format logs for the AI
+function groupLogsBySession(logs: any[]) {
+  if (!logs || logs.length === 0) return "No recent workouts found.";
+  const sessions: Record<string, string[]> = {};
+  
+  logs.forEach(log => {
+    const key = `${log.date} - ${log.workout_name}`;
+    if (!sessions[key]) sessions[key] = [];
+    sessions[key].push(`${log.exercise_name} (${log.weight_kg}kg x ${log.reps})`);
+  });
+
+  return Object.entries(sessions).map(([name, exercises]) => {
+    const uniqueExercises = Array.from(new Set(exercises));
+    return `Workout: ${name}\nExercises: ${uniqueExercises.join(', ')}`;
+  }).join('\n\n');
 }

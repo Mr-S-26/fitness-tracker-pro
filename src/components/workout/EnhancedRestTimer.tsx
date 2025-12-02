@@ -16,18 +16,15 @@ export default function EnhancedRestTimer({ initialSeconds, coachMessage, onComp
   const [isPaused, setIsPaused] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  // 🎵 Play Sound Function (Synthetic Beep)
-  const playBeep = (frequency: number = 800, duration: number = 0.1) => {
+  // 🎵 LOUD Audio Engine
+  const playBeep = (frequency: number = 800, duration: number = 0.15) => {
     try {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
       const ctx = audioContextRef.current;
-      
-      // Force resume context (fixes "no sound" on Chrome/iOS)
-      if (ctx.state === 'suspended') {
-        ctx.resume();
-      }
+      if (ctx?.state === 'suspended') ctx.resume();
+      if (!ctx) return;
 
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -36,41 +33,35 @@ export default function EnhancedRestTimer({ initialSeconds, coachMessage, onComp
       gain.connect(ctx.destination);
 
       osc.frequency.value = frequency;
-      // ✅ CHANGED: 'triangle' is much sharper and easier to hear on phones than 'sine'
-      osc.type = 'triangle'; 
+      osc.type = 'triangle'; // 🔊 Sharp wave cuts through noise better than sine
       
-      // ✅ CHANGED: Set Volume to 4.0 (400% Gain)
+      // 🔊 Volume Boost (400%)
       gain.gain.setValueAtTime(4.0, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + duration);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
       
       osc.start();
       osc.stop(ctx.currentTime + duration);
     } catch (e) {
-      console.error("Audio play failed", e);
+      console.error("Audio failed", e);
     }
   };
 
   useEffect(() => {
-    // Play a "start" beep when timer opens
-    playBeep(600, 0.1);
+    playBeep(600, 0.1); // Start beep
   }, []);
 
   useEffect(() => {
-    // 🚨 Completion Logic
     if (timeLeft <= 0) {
-      playBeep(1200, 0.5); // High pitch finished beep
-      
-      const timeout = setTimeout(() => {
-        onComplete();
-      }, 500);
+      playBeep(1200, 0.8); // 🚨 Long, high pitch finish alarm
+      const timeout = setTimeout(() => onComplete(), 500);
       return () => clearTimeout(timeout);
     }
 
     if (isPaused) return;
 
-    // 🔊 Countdown Sound (3, 2, 1)
+    // Countdown Beeps (3, 2, 1)
     if (timeLeft <= 3 && timeLeft > 0) {
-      playBeep(600, 0.1); 
+      playBeep(800, 0.1); 
     }
 
     const timer = setInterval(() => {
@@ -80,7 +71,7 @@ export default function EnhancedRestTimer({ initialSeconds, coachMessage, onComp
     return () => clearInterval(timer);
   }, [timeLeft, isPaused, onComplete]);
 
-  const progress = ((initialSeconds - timeLeft) / initialSeconds) * 100;
+  const progress = Math.min(100, Math.max(0, ((initialSeconds - timeLeft) / initialSeconds) * 100));
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
