@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   ChevronLeft, ChevronRight, MoreVertical, CheckCircle2, 
-  AlertTriangle, Info, AlertCircle, Dumbbell, Clock, Repeat, Flame, Wind, Brain
+  AlertTriangle, Info, AlertCircle, Dumbbell, Clock, Repeat, Flame, Wind, Brain, Activity
 } from 'lucide-react';
 import EnhancedRestTimer from './EnhancedRestTimer';
 import AISetFeedback from '@/components/coaching/AISetFeedback';
@@ -87,21 +87,18 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
     if (!feedbackModal) return;
     
     const { rpe, difficulty } = data;
-    // ✅ SMART: Detect Bodyweight (0kg)
     const isBodyweight = feedbackModal.targetWeight === 0;
     const goal = userProfile?.primary_goal || 'general_fitness';
     
     let feedback = "";
     let extraRest = 0;
 
-    // Logic: Coaching based on Intensity & Equipment
     if (rpe >= 9 || difficulty === 'failure') {
       if (goal === 'strength') extraRest = 60;
       else extraRest = 30;
 
       feedback = `⚠️ Near failure! I added +${extraRest}s rest.`;
       
-      // Context-aware advice
       if (isBodyweight) {
         feedback += " Form breaking? Try an easier variation (e.g. knees) or fewer reps.";
       } else {
@@ -120,7 +117,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
 
     setCoachMessage(feedback);
     setFeedbackModal(null);
-    // ✅ AUTO-ADD REST
     setCurrentRestTime(feedbackModal.restSeconds + extraRest);
     setShowTimer(true);
 
@@ -205,7 +201,7 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
       {/* Content Area */}
       <div className="p-4 min-h-[300px]">
         
-        {/* ✅ RESTORED: Target Stats Card */}
+        {/* Stats Card */}
         <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 mb-6 shadow-sm flex justify-between items-center">
            <div className="text-center flex-1 border-r border-gray-100 dark:border-gray-800">
               <span className="block text-xs text-gray-400 uppercase font-bold mb-1 flex items-center justify-center gap-1">
@@ -247,6 +243,14 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
               initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
               className="space-y-4"
             >
+              {/* ✅ RESTORED: Warmups (Only First Exercise) */}
+              {currentExerciseIndex === 0 && activeWorkout.warmups?.length > 0 && (
+                <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-xl border border-orange-100 dark:border-orange-800 mb-4">
+                  <h3 className="font-bold text-orange-800 dark:text-orange-200 mb-2 flex items-center gap-2 text-sm"><Flame className="w-4 h-4" /> Warm-up Routine</h3>
+                  <ul className="list-disc list-inside text-xs text-orange-700 dark:text-orange-300 space-y-1">{activeWorkout.warmups.map((w: string, i: number) => <li key={i}>{w}</li>)}</ul>
+                </div>
+              )}
+
               <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
                 <div className="grid grid-cols-10 gap-2 p-3 bg-gray-50 dark:bg-gray-800/50 text-xs font-bold text-gray-500 dark:text-gray-400 text-center border-b border-gray-100 dark:border-gray-800">
                   <div className="col-span-2">SET</div>
@@ -257,7 +261,6 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
                   {Array.from({ length: currentExercise.sets }).map((_, i) => (
                     <SetRow 
-                      // ✅ FIX: Unique key forces reset on exercise change
                       key={`${currentExercise.exercise_name}-${i}`} 
                       setNumber={i + 1} 
                       targetReps={currentExercise.reps}
@@ -267,6 +270,14 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
                   ))}
                 </div>
               </div>
+              
+              {/* ✅ RESTORED: Cooldown (Only Last Exercise) */}
+              {isLastExercise && activeWorkout.cool_down?.length > 0 && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 mt-6">
+                  <h3 className="font-bold text-blue-800 dark:text-blue-200 mb-2 flex items-center gap-2 text-sm"><Wind className="w-4 h-4" /> Cool-down</h3>
+                  <ul className="list-disc list-inside text-xs text-blue-700 dark:text-blue-300 space-y-1">{activeWorkout.cool_down.map((c: string, i: number) => <li key={i}>{c}</li>)}</ul>
+                </div>
+              )}
             </motion.div>
           ) : (
             <motion.div 
@@ -277,6 +288,10 @@ export default function WorkoutSessionManager({ userProfile, programData }: Prop
               <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
                 <h3 className="font-bold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-2 text-sm"><CheckCircle2 className="w-4 h-4" /> Perfect Form</h3>
                 <ul className="space-y-2">{currentExercise.execution_cues?.length > 0 ? currentExercise.execution_cues.map((cue: string, i: number) => <li key={i} className="text-sm text-blue-700 dark:text-blue-200 flex gap-2 items-start"><span className="w-1.5 h-1.5 bg-blue-400 rounded-full mt-1.5 flex-shrink-0" />{cue}</li>) : <p className="text-sm text-gray-500 italic">No cues available.</p>}</ul>
+              </div>
+              <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-800">
+                <h3 className="font-bold text-red-800 dark:text-red-300 mb-2 flex items-center gap-2 text-sm"><AlertCircle className="w-4 h-4" /> Common Mistakes</h3>
+                <ul className="space-y-2">{currentExercise.common_mistakes?.length > 0 ? currentExercise.common_mistakes.map((mistake: string, i: number) => <li key={i} className="text-sm text-red-700 dark:text-red-200 flex gap-2 items-start"><span className="w-1.5 h-1.5 bg-red-400 rounded-full mt-1.5 flex-shrink-0" />{mistake}</li>) : <p className="text-sm text-gray-500 italic">No mistakes listed.</p>}</ul>
               </div>
             </motion.div>
           )}
