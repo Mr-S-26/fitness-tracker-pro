@@ -52,31 +52,58 @@ export async function generatePersonalizedProgram(
   formData: OnboardingFormData,
   userId: string
 ): Promise<GeneratedPlan> {
-  console.log('🤖 Starting Final V1 Plan Generation...');
+  console.log('🤖 Starting Smart Plan Generation...');
   
   const supabase = await createClient();
   
-  // A. Determine Equipment Filter (Smart Match)
-  const equipment = formData.available_equipment || [];
-  const has = (keyword: string) => equipment.some(item => item.toLowerCase().includes(keyword));
+  // A. Smart Equipment Detection
+  const userEquipment = formData.available_equipment || [];
+  const has = (keyword: string) => userEquipment.some(item => item.toLowerCase().includes(keyword));
+
+  const hasDumbbells = has('dumbbell') || has('adjustable');
+  const hasBarbell = has('barbell');
+  const hasBench = has('bench'); // ✅ Check for Bench
+  const hasGym = has('gym') || has('commercial');
+  const hasCables = has('cable') || has('band');
 
   const allowedTypes = ['bodyweight']; 
-  if (has('dumbbell')) allowedTypes.push('dumbbell');
-  if (has('barbell')) allowedTypes.push('barbell');
-  if (has('gym') || has('commercial')) {
+  
+  if (hasDumbbells) allowedTypes.push('dumbbell');
+  if (hasBarbell) allowedTypes.push('barbell');
+  if (hasCables) allowedTypes.push('cable');
+  
+  if (hasGym) {
       allowedTypes.push('machine', 'cable');
       if (!allowedTypes.includes('barbell')) allowedTypes.push('barbell');
       if (!allowedTypes.includes('dumbbell')) allowedTypes.push('dumbbell');
   }
 
+  console.log(`🔍 Equipment: ${allowedTypes.join(', ')} | Bench: ${hasBench}`);
+
   // B. Fetch Exercises from DB
-  const { data: dbExercises } = await supabase
+  let { data: dbExercises } = await supabase
     .from('exercises')
     .select('*')
     .in('equipment', allowedTypes);
 
-  const exercisePool = dbExercises || [];
-  console.log(`📚 Loaded ${exercisePool.length} exercises from library`);
+  let exercisePool = dbExercises || [];
+
+  // ✅ FIX 1: Filter out "Bench Required" moves if no bench
+  if (!hasBench && !hasGym) {
+    exercisePool = exercisePool.filter(ex => {
+      const name = ex.name.toLowerCase();
+      const isChestFly = name.includes('fly') && !name.includes('rear') && !name.includes('floor');
+      
+      // If it explicitly says "Incline", "Decline", or "Bench", remove it
+      // UNLESS it is a "Floor Press" or "Glute Bridge" (which are done on floor)
+      if (name.includes('incline') || name.includes('decline')) return false;
+      if (name.includes('bench') && !name.includes('floor')) return false;
+      if (isChestFly) return false; // Most chest flys need a bench
+      
+      return true;
+    });
+    console.log('🚫 Filtered out bench exercises.');
+  }
 
   // C. Generate Logic
   const program = generateScientificProgram(formData, exercisePool);
@@ -86,7 +113,6 @@ export async function generatePersonalizedProgram(
 }
 
 function generateScientificProgram(formData: OnboardingFormData, exercisePool: any[]): WorkoutProgram {
-  // Extract Inputs
   const daysPerWeek = formData.available_days_per_week || 3;
   const sessionDuration = formData.session_duration_minutes || 60; 
   const selectedDays = formData.selected_days; 
@@ -96,13 +122,9 @@ function generateScientificProgram(formData: OnboardingFormData, exercisePool: a
   const sex = formData.sex || 'male';
   const injuries = formData.current_injuries?.map(i => i.body_part.toLowerCase()) || [];
 
-  // 1. 🩹 Apply Safety Filter
   const safePool = filterExercisesForSafety(exercisePool, injuries);
-
-  // 2. 🧩 Determine Split Pattern
   const splitPattern = getSplitPattern(daysPerWeek);
 
-  // 3. Build 12-Week Plan
   const weeks = [];
   for (let weekNum = 1; weekNum <= 12; weekNum++) {
     const phase = getPhaseVariables(weekNum, goal);
@@ -111,7 +133,7 @@ function generateScientificProgram(formData: OnboardingFormData, exercisePool: a
       daysPerWeek,
       safePool,
       splitPattern,
-      weekNum === 9, // Deload week
+      weekNum === 9,
       weekNum,
       formData.weight_kg || 70,
       experience,
@@ -163,39 +185,48 @@ function buildWeekWorkouts(
   const workouts = [];
   
   // Exercise Count Logic
-  let exerciseCount = 5; // Default 60 mins
-  if (sessionDuration <= 30) exerciseCount = 3;
-  else if (sessionDuration <= 45) exerciseCount = 4;
-  else if (sessionDuration <= 75) exerciseCount = 6;
-  else exerciseCount = 7; // 90+ mins
+  let exerciseCount = 5; // Default
+  
+  if (sessionDuration <= 30) {
+      exerciseCount = 3; // Quick Session
+  } else if (sessionDuration <= 45) {
+      exerciseCount = 4; // Short Session
+  } else if (sessionDuration <= 60) {
+      exerciseCount = 5; // ✅ Standard Hour Session
+  } else if (sessionDuration <= 75) {
+      exerciseCount = 6; // Extended Session
+  } else {
+      exerciseCount = 7; // 90+ Mins (Pro/Volume)
+  }
 
-  const dayNames = selectedDays && selectedDays.length > 0 
-    ? selectedDays 
-    : getDaySplit(days); 
+  const dayNames = selectedDays && selectedDays.length > 0 ? selectedDays : getDaySplit(days); 
 
   for (let i = 0; i < dayNames.length; i++) {
     const theme = split.schedule[i % split.schedule.length]; 
     let themePool = getExercisesForTheme(masterPool, theme);
     
-    // Sort: Weighted/Compounds first
+    // ✅ FIX 2: Strict Prioritization
+    // We sort by:
+    // 1. Tier (Compounds First)
+    // 2. Equipment (Weighted >>> Bodyweight)
     themePool = themePool.sort((a, b) => {
        const tierA = parseInt(a.tier?.replace('tier_', '') || '3');
        const tierB = parseInt(b.tier?.replace('tier_', '') || '3');
-       if (tierA !== tierB) return tierA - tierB;
        
        const isWeightedA = a.equipment !== 'bodyweight';
        const isWeightedB = b.equipment !== 'bodyweight';
+
+       // If tiers are different, respect the tier (Compounds first)
+       if (tierA !== tierB) return tierA - tierB;
+       
+       // If tiers are SAME, Weighted ALWAYS beats Bodyweight
        if (isWeightedA && !isWeightedB) return -1;
        if (!isWeightedA && isWeightedB) return 1;
+       
        return 0;
     });
 
-    // ✅ FIX: Week 1 should start at index 0 (Best Exercises)
-    // Week 1 -> (0) -> Index 0
-    // Week 2 -> (1) -> Index 2
-    // Week 3 -> (0) -> Index 0
     const startIndex = ((week - 1) % 2) * 2; 
-    
     const dailyExercisesRaw = themePool.slice(startIndex, startIndex + exerciseCount);
     
     // Fallback if DB is empty

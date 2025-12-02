@@ -8,7 +8,7 @@ export default async function ProgramPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  // 1. Fetch Active Program (The Plan)
+  // 1. Fetch Active Program
   const { data: program } = await supabase
     .from('ai_program_versions')
     .select('*')
@@ -17,11 +17,13 @@ export default async function ProgramPage() {
     .single();
 
   // 2. Fetch Workout History (The Reality)
-  // We only need dates and basic info to mark the calendar
+  // ✅ FIX: Only fetch logs that look like completed sessions (duration > 2 mins)
+  // This filters out the "1 set logged" entries from appearing as full workouts on the calendar.
   const { data: logs } = await supabase
     .from('workout_logs')
     .select('id, date, workout_name, duration_seconds')
-    .eq('user_id', user.id);
+    .eq('user_id', user.id)
+    .gt('duration_seconds', 120); // Only count if > 2 minutes duration
 
   if (!program) {
     return (

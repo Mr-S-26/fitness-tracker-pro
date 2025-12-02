@@ -329,7 +329,8 @@ export interface OnboardingFormData {
   available_days_per_week: number; // Keep for backward compatibility/stats
   selected_days?: string[]; // ✅ NEW: Specific days (e.g. ["Monday", "Thursday"])
   session_duration_minutes: number
-  preferred_training_times: string[]
+  preferred_workout_time?: string; // Format: "07:00" (24h)
+  reminders_enabled?: boolean
   
   // Step 5: Equipment
   training_location: TrainingLocation | ''
