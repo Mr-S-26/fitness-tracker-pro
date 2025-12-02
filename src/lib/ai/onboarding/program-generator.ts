@@ -52,38 +52,22 @@ export async function generatePersonalizedProgram(
   formData: OnboardingFormData,
   userId: string
 ): Promise<GeneratedPlan> {
-  console.log('🤖 Starting Smart Plan Generation...');
+  console.log('🤖 Starting Time-Aware Plan Generation...');
   
   const supabase = await createClient();
   
-  // ✅ FIX 1: Fuzzy Matching for Equipment
-  // This catches "adjustable_dumbbells", "dumbbells", "dumbbell_set", etc.
+  // A. Determine Equipment Filter (Smart Match)
   const equipment = formData.available_equipment || [];
-  
-  // Helper to check for keywords inside the equipment array strings
   const has = (keyword: string) => equipment.some(item => item.toLowerCase().includes(keyword));
 
   const allowedTypes = ['bodyweight']; 
-  
-  // If user has ANY kind of dumbbell
-  if (has('dumbbell')) {
-      allowedTypes.push('dumbbell');
-  }
-  
-  // If user has ANY kind of barbell
-  if (has('barbell')) {
-      allowedTypes.push('barbell');
-  }
-  
-  // If user has "Gym" access (implies machines + cables + everything)
+  if (has('dumbbell')) allowedTypes.push('dumbbell');
+  if (has('barbell')) allowedTypes.push('barbell');
   if (has('gym') || has('commercial')) {
       allowedTypes.push('machine', 'cable');
-      // Gyms usually have free weights too
       if (!allowedTypes.includes('barbell')) allowedTypes.push('barbell');
       if (!allowedTypes.includes('dumbbell')) allowedTypes.push('dumbbell');
   }
-
-  console.log(`🔍 Detected Equipment for User: ${allowedTypes.join(', ')}`);
 
   // B. Fetch Exercises from DB
   const { data: dbExercises } = await supabase
@@ -104,6 +88,7 @@ export async function generatePersonalizedProgram(
 function generateScientificProgram(formData: OnboardingFormData, exercisePool: any[]): WorkoutProgram {
   // Extract Inputs
   const daysPerWeek = formData.available_days_per_week || 3;
+  const sessionDuration = formData.session_duration_minutes || 60; // ✅ Default to 60 if missing
   const selectedDays = formData.selected_days; 
   const goal = formData.primary_goal || 'general_fitness';
   const experience = formData.training_experience || 'beginner';
@@ -134,6 +119,7 @@ function generateScientificProgram(formData: OnboardingFormData, exercisePool: a
       sex,
       goal,
       phase,
+      sessionDuration, // ✅ Pass duration down
       selectedDays
     );
 
@@ -146,7 +132,7 @@ function generateScientificProgram(formData: OnboardingFormData, exercisePool: a
 
   return {
     program_name: `12-Week ${capitalize(experience)} ${splitPattern.name} Protocol`,
-    program_overview: `Customized ${splitPattern.name} split for ${goal.replace('_', ' ')}. Focused on ${phaseFocus(goal)}.`,
+    program_overview: `Custom ${splitPattern.name} split. ${sessionDuration} min sessions focused on ${phaseFocus(goal)}.`,
     duration_weeks: 12,
     weeks,
     progression_notes: `2-for-2 Rule: If you can complete 2 extra reps on your last set for 2 consecutive workouts, increase weight by 2.5kg.`,
@@ -170,10 +156,20 @@ function buildWeekWorkouts(
   sex: string,
   goal: string,
   phase: any,
+  sessionDuration: number, // ✅ Received Duration
+  oneRepMaxes?: any,
   selectedDays?: string[]
 ) {
   const workouts = [];
   
+  // ✅ LOGIC: Determine Exercise Count based on Time
+  // Approx 8-10 mins per exercise (including warmups/rest) is a safe heuristic
+  let exerciseCount = 5; // Default 60 mins
+  if (sessionDuration <= 30) exerciseCount = 3;
+  else if (sessionDuration <= 45) exerciseCount = 4;
+  else if (sessionDuration <= 75) exerciseCount = 6;
+  else exerciseCount = 7; // 90+ mins
+
   const dayNames = selectedDays && selectedDays.length > 0 
     ? selectedDays 
     : getDaySplit(days); 
@@ -182,50 +178,51 @@ function buildWeekWorkouts(
     const theme = split.schedule[i % split.schedule.length]; 
     let themePool = getExercisesForTheme(masterPool, theme);
     
-    // ✅ FIX 2: Better Sorting (Prioritize User's Main Equipment)
+    // Sort: Weighted/Compounds first
     themePool = themePool.sort((a, b) => {
-       // 1. Tier (Compounds First)
        const tierA = parseInt(a.tier?.replace('tier_', '') || '3');
        const tierB = parseInt(b.tier?.replace('tier_', '') || '3');
        if (tierA !== tierB) return tierA - tierB;
        
-       // 2. Equipment (Weighted > Bodyweight)
        const isWeightedA = a.equipment !== 'bodyweight';
        const isWeightedB = b.equipment !== 'bodyweight';
        if (isWeightedA && !isWeightedB) return -1;
        if (!isWeightedA && isWeightedB) return 1;
-       
        return 0;
     });
 
+    // Select Exercises
     const startIndex = (week % 2) * 2; 
-    const dailyExercisesRaw = themePool.slice(startIndex, startIndex + 6);
+    // ✅ USE DYNAMIC COUNT
+    const dailyExercisesRaw = themePool.slice(startIndex, startIndex + exerciseCount);
     
-    // Fallback Logic
-    if (dailyExercisesRaw.length < 4) {
-       const needed = 4 - dailyExercisesRaw.length;
+    // Fallback if DB is empty
+    if (dailyExercisesRaw.length < exerciseCount) {
+       const needed = exerciseCount - dailyExercisesRaw.length;
        const fallbacks = getFallbackExercises(theme).slice(0, needed);
        dailyExercisesRaw.push(...fallbacks);
     }
 
     const dailyExercises = dailyExercisesRaw.map((ex) => {
       const dbMultiplier = ex.beginner_multiplier !== undefined ? Number(ex.beginner_multiplier) : undefined;
-      const baseWeight = calculateStartingWeight(ex.name, userWeight, experience, age, sex, goal, dbMultiplier);
+      const baseWeight = calculateStartingWeight(
+        ex.name, userWeight, experience, age, sex, goal, dbMultiplier, oneRepMaxes
+      );
       
       const progression = Math.floor((week - 1) / 4) * 2.5;
       const finalWeight = baseWeight > 0 ? baseWeight + progression : 0;
 
       let baseSets = experience === 'beginner' ? 3 : 4; 
+      // Adjust sets for very short workouts to fit volume
+      if (sessionDuration <= 30) baseSets = 2; // 2 sets for 30 min workouts
       if (isDeload) baseSets = 2;
 
       return {
         exercise_name: ex.name,
-        // ✅ PASS RICH DATA
-        video_url: ex.video_url, 
+        video_url: ex.video_url,
         setup_cues: ex.setup_cues,
         execution_cues: ex.execution_cues,
         common_mistakes: ex.common_mistakes,
-
         sets: baseSets,
         reps: phase.reps,
         rest_seconds: phase.rest,
@@ -247,8 +244,70 @@ function buildWeekWorkouts(
 }
 
 // ==========================================
-// 4. INTELLIGENCE ENGINES
+// 4. HELPERS (Logic remains mostly same)
 // ==========================================
+
+function calculateStartingWeight(
+  exerciseName: string, 
+  userWeight: number, 
+  experience: string,
+  age: number,
+  sex: string,
+  goal: string,
+  dbMultiplier?: number,
+  oneRepMaxes?: any
+): number {
+  const name = exerciseName.toLowerCase();
+  
+  // 1. Check Known PRs
+  if (oneRepMaxes) {
+    let knownMax = 0;
+    if (name.includes('bench') && !name.includes('dumbbell')) knownMax = oneRepMaxes.bench_press || 0;
+    else if (name.includes('squat') && !name.includes('goblet')) knownMax = oneRepMaxes.squat || 0;
+    else if (name.includes('deadlift') && !name.includes('romanian')) knownMax = oneRepMaxes.deadlift || 0;
+    else if (name.includes('overhead') || name.includes('military')) knownMax = oneRepMaxes.overhead_press || 0;
+
+    if (knownMax > 0) {
+      let intensity = 0.70;
+      if (goal === 'strength') intensity = 0.80;
+      if (goal === 'fat_loss') intensity = 0.65;
+      return Math.round((knownMax * intensity) / 2.5) * 2.5;
+    }
+  }
+
+  // 2. Multiplier Fallback
+  let multiplier = dbMultiplier !== undefined ? Number(dbMultiplier) : 0.5;
+  if (dbMultiplier === undefined) {
+      if (name.includes('squat')) multiplier = 0.4;
+      else if (name.includes('deadlift')) multiplier = 0.5;
+      else if (name.includes('bench')) multiplier = 0.35;
+      else if (name.includes('dumbbell')) multiplier = 0.15;
+      else multiplier = 0;
+  }
+  
+  // Experience Scalar
+  let expScalar = experience === 'beginner' ? 0.7 : (experience === 'advanced' ? 1.2 : 1.0);
+  
+  // Sex Adjustment
+  if (sex === 'female') {
+    multiplier *= (name.includes('bench') || name.includes('push')) ? 0.6 : 0.8;
+  }
+
+  // Age Decay
+  let ageFactor = age >= 60 ? 0.6 : (age >= 40 ? 0.9 : 1.0);
+
+  let goalFactor = 1.0;
+  if (goal === 'strength') goalFactor = 1.1;
+  else if (goal === 'fat_loss') goalFactor = 0.85;
+
+  const finalWeight = userWeight * multiplier * expScalar * ageFactor * goalFactor;
+  
+  if (multiplier > 0 && finalWeight < 2.5) return 2.5;
+  return Math.round(finalWeight / 2.5) * 2.5;
+}
+
+// ... (Copy existing helpers below: getPhaseVariables, getWarmups, getCooldowns, getFallbackExercises, getDaySplit, etc.)
+// ... (Use the same helpers from your previous file version)
 
 type SplitDay = 'Full Body' | 'Upper' | 'Lower' | 'Push' | 'Pull' | 'Legs' | 'Core' | 'Cardio';
 
@@ -297,51 +356,6 @@ function filterExercisesForSafety(exercises: any[], injuries: string[]) {
   });
 }
 
-function calculateStartingWeight(
-  exerciseName: string, 
-  userWeight: number, 
-  experience: string,
-  age: number,
-  sex: string,
-  goal: string,
-  dbMultiplier?: number
-): number {
-  let multiplier = dbMultiplier !== undefined ? Number(dbMultiplier) : 0.5;
-  
-  if (dbMultiplier === undefined) {
-      const name = exerciseName.toLowerCase();
-      if (name.includes('squat')) multiplier = 0.5;
-      else if (name.includes('deadlift')) multiplier = 0.6;
-      else if (name.includes('bench')) multiplier = 0.4;
-      else if (name.includes('dumbbell')) multiplier = 0.15;
-      else multiplier = 0;
-  }
-  
-  const isFemale = sex === 'female';
-  if (isFemale) {
-    const name = exerciseName.toLowerCase();
-    if (name.includes('bench') || name.includes('overhead') || name.includes('push')) {
-      multiplier *= 0.6; 
-    } else {
-      multiplier *= 0.75;
-    }
-  }
-
-  let ageFactor = 1.0;
-  if (age >= 60) ageFactor = 0.5;
-  else if (age >= 50) ageFactor = 0.75;
-  else if (age >= 40) ageFactor = 0.9;
-
-  let goalFactor = 1.0;
-  if (goal === 'strength' || goal === 'athletic_performance') goalFactor = 1.15;
-  else if (goal === 'fat_loss') goalFactor = 0.85;
-
-  const finalWeight = userWeight * multiplier * ageFactor * goalFactor;
-  
-  if (multiplier > 0 && finalWeight < 2.5) return 2.5;
-  return Math.round(finalWeight / 2.5) * 2.5;
-}
-
 function getPhaseVariables(week: number, goal: string) {
   const isStrength = goal === 'strength';
   const isAthletic = goal === 'athletic_performance';
@@ -384,8 +398,7 @@ function getCooldowns(theme: SplitDay) {
 }
 
 function getFallbackExercises(theme: SplitDay) {
-  // ✅ FIX 3: Added Placeholder Video URL for Fallbacks
-  const placeholderVideo = ""; // Or a generic gym GIF if you have one
+  const placeholderVideo = ""; 
   
   switch (theme) {
     case 'Lower':
