@@ -1,456 +1,333 @@
-'use server';
+'use client';
 
-import { createClient } from '@/lib/supabase/server';
-import type { OnboardingFormData } from '@/types/database';
-import { calculateNutritionPlan } from '@/lib/nutrition/macro-calculator';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { 
+  ChevronLeft, ChevronRight, MoreVertical, CheckCircle2, 
+  AlertTriangle, Info, AlertCircle, Dumbbell, Clock, Repeat, Flame, Wind, Brain, Activity
+} from 'lucide-react';
+import EnhancedRestTimer from './EnhancedRestTimer';
+import AISetFeedback from '@/components/coaching/AISetFeedback';
+import PreSetCoaching from '@/components/coaching/PreSetCoaching';
+import { logSetResult } from '@/app/actions/workout';
+import { finishWorkoutSession } from '@/app/actions/finish-workout';
+import { motion, AnimatePresence } from "framer-motion"; 
 
-// ==========================================
-// 1. INTERFACES
-// ==========================================
-
-export interface WorkoutProgram {
-  program_name: string;
-  program_overview: string;
-  duration_weeks: number;
-  weeks: Array<{
-    week_number: number;
-    focus: string;
-    workouts: Array<{
-      day: string;
-      workout_name: string;
-      warmups: string[];
-      exercises: Array<{
-        exercise_name: string;
-        video_url?: string;
-        setup_cues?: string[];
-        execution_cues?: string[];
-        common_mistakes?: string[];
-        sets: number;
-        reps: string;
-        rest_seconds: number;
-        notes?: string;
-        rpe_target?: number;
-        suggested_weight_kg?: number;
-      }>;
-      cool_down: string[];
-    }>;
-  }>;
-  progression_notes: string;
-  deload_strategy: string;
+interface Props {
+  userProfile: any;
+  programData: any;
 }
 
-export interface GeneratedPlan {
-  program: WorkoutProgram;
-  nutrition: any;
-}
-
-// ==========================================
-// 2. MAIN GENERATOR FUNCTION
-// ==========================================
-
-export async function generatePersonalizedProgram(
-  formData: OnboardingFormData,
-  userId: string
-): Promise<GeneratedPlan> {
-  console.log('🤖 Starting Final V1 Plan Generation...');
+export default function WorkoutSessionManager({ userProfile, programData }: Props) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [activeWorkout, setActiveWorkout] = useState<any>(null);
+  const [activeFocus, setActiveFocus] = useState<string>('');
+  const [adjustmentReason, setAdjustmentReason] = useState<string | null>(null);
   
-  const supabase = await createClient();
+  const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
+  const [activeTab, setActiveTab] = useState<'logger' | 'form'>('logger');
+
+  const [showTimer, setShowTimer] = useState(false);
+  const [currentRestTime, setCurrentRestTime] = useState(60);
+  const [coachMessage, setCoachMessage] = useState<string | null>(null);
   
-  // A. Determine Equipment Filter (Smart Match)
-  const equipment = formData.available_equipment || [];
-  const has = (keyword: string) => equipment.some(item => item.toLowerCase().includes(keyword));
+  const [feedbackModal, setFeedbackModal] = useState<any>(null);
+  const [coachingModal, setCoachingModal] = useState<any>(null);
 
-  const allowedTypes = ['bodyweight']; 
-  if (has('dumbbell')) allowedTypes.push('dumbbell');
-  if (has('barbell')) allowedTypes.push('barbell');
-  if (has('gym') || has('commercial')) {
-      allowedTypes.push('machine', 'cable');
-      if (!allowedTypes.includes('barbell')) allowedTypes.push('barbell');
-      if (!allowedTypes.includes('dumbbell')) allowedTypes.push('dumbbell');
-  }
+  useEffect(() => {
+    const initSession = () => {
+      const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+      // Default to Week 1 for MVP logic
+      const currentWeekData = programData.weeks.find((w: any) => w.week_number === 1);
+      const scheduledWorkout = currentWeekData?.workouts.find((w: any) => w.day === today);
 
-  // B. Fetch Exercises from DB
-  const { data: dbExercises } = await supabase
-    .from('exercises')
-    .select('*')
-    .in('equipment', allowedTypes);
+      if (scheduledWorkout) {
+        let finalWorkout = { ...scheduledWorkout };
+        const readinessData = localStorage.getItem('workoutReadiness');
+        if (readinessData) {
+          const { score } = JSON.parse(readinessData);
+          if (score < 50) {
+            setAdjustmentReason("Coach Note: Low readiness. Volume reduced.");
+            finalWorkout.exercises = finalWorkout.exercises.map((ex: any) => ({
+              ...ex,
+              sets: Math.max(1, ex.sets - 1),
+              notes: `${ex.notes || ''} (Deloaded)`.trim()
+            }));
+          }
+        }
+        setActiveWorkout(finalWorkout);
+        setActiveFocus(currentWeekData?.focus || 'General Fitness');
+      }
+      setLoading(false);
+    };
+    initSession();
+  }, [programData]);
 
-  const exercisePool = dbExercises || [];
-  console.log(`📚 Loaded ${exercisePool.length} exercises from library`);
-
-  // C. Generate Logic
-  const program = generateScientificProgram(formData, exercisePool);
-  const nutrition = calculateNutritionPlan(formData);
-
-  return { program, nutrition };
-}
-
-function generateScientificProgram(formData: OnboardingFormData, exercisePool: any[]): WorkoutProgram {
-  // Extract Inputs
-  const daysPerWeek = formData.available_days_per_week || 3;
-  const sessionDuration = formData.session_duration_minutes || 60; 
-  const selectedDays = formData.selected_days; 
-  const goal = formData.primary_goal || 'general_fitness';
-  const experience = formData.training_experience || 'beginner';
-  const age = formData.age || 30;
-  const sex = formData.sex || 'male';
-  const injuries = formData.current_injuries?.map(i => i.body_part.toLowerCase()) || [];
-
-  // 1. 🩹 Apply Safety Filter
-  const safePool = filterExercisesForSafety(exercisePool, injuries);
-
-  // 2. 🧩 Determine Split Pattern
-  const splitPattern = getSplitPattern(daysPerWeek);
-
-  // 3. Build 12-Week Plan
-  const weeks = [];
-  for (let weekNum = 1; weekNum <= 12; weekNum++) {
-    const phase = getPhaseVariables(weekNum, goal);
-    
-    const workouts = buildWeekWorkouts(
-      daysPerWeek,
-      safePool,
-      splitPattern,
-      weekNum === 9, // Deload week
-      weekNum,
-      formData.weight_kg || 70,
-      experience,
-      age,
-      sex,
-      goal,
-      phase,
-      sessionDuration,
-      selectedDays
-    );
-
-    weeks.push({
-      week_number: weekNum,
-      focus: phase.name,
-      workouts,
+  // Handlers
+  const handleSetClick = (
+    exerciseName: string, 
+    setNumber: number, 
+    targetReps: string, 
+    rest: number,
+    actualWeight: number,
+    actualReps: string
+  ) => {
+    setFeedbackModal({
+      isOpen: true,
+      exerciseName,
+      setNumber: setNumber + 1,
+      targetWeight: actualWeight,
+      targetReps: actualReps,
+      restSeconds: rest
     });
-  }
-
-  return {
-    program_name: `12-Week ${capitalize(experience)} ${splitPattern.name} Protocol`,
-    program_overview: `Custom ${splitPattern.name} split. ${sessionDuration} min sessions focused on ${phaseFocus(goal)}.`,
-    duration_weeks: 12,
-    weeks,
-    progression_notes: `2-for-2 Rule: If you can complete 2 extra reps on your last set for 2 consecutive workouts, increase weight by 2.5kg.`,
-    deload_strategy: `Week 9 is Active Recovery. Reduce volume by 50% to prevent burnout.`,
   };
-}
 
-// ==========================================
-// 3. WORKOUT BUILDER LOGIC
-// ==========================================
-
-function buildWeekWorkouts(
-  days: number, 
-  masterPool: any[], 
-  split: SplitPattern,
-  isDeload: boolean, 
-  week: number,
-  userWeight: number,
-  experience: string,
-  age: number,
-  sex: string,
-  goal: string,
-  phase: any,
-  sessionDuration: number, 
-  oneRepMaxes?: any,
-  selectedDays?: string[]
-) {
-  const workouts = [];
-  
-  // Exercise Count Logic
-  let exerciseCount = 5; // Default 60 mins
-  if (sessionDuration <= 30) exerciseCount = 3;
-  else if (sessionDuration <= 45) exerciseCount = 4;
-  else if (sessionDuration <= 75) exerciseCount = 6;
-  else exerciseCount = 7; // 90+ mins
-
-  const dayNames = selectedDays && selectedDays.length > 0 
-    ? selectedDays 
-    : getDaySplit(days); 
-
-  for (let i = 0; i < dayNames.length; i++) {
-    const theme = split.schedule[i % split.schedule.length]; 
-    let themePool = getExercisesForTheme(masterPool, theme);
+  const handleFeedbackSave = async (data: any) => {
+    if (!feedbackModal) return;
     
-    // Sort: Weighted/Compounds first
-    themePool = themePool.sort((a, b) => {
-       const tierA = parseInt(a.tier?.replace('tier_', '') || '3');
-       const tierB = parseInt(b.tier?.replace('tier_', '') || '3');
-       if (tierA !== tierB) return tierA - tierB;
-       
-       const isWeightedA = a.equipment !== 'bodyweight';
-       const isWeightedB = b.equipment !== 'bodyweight';
-       if (isWeightedA && !isWeightedB) return -1;
-       if (!isWeightedA && isWeightedB) return 1;
-       return 0;
-    });
-
-    // ✅ FIX: Week 1 should start at index 0 (Best Exercises)
-    // Week 1 -> (0) -> Index 0
-    // Week 2 -> (1) -> Index 2
-    // Week 3 -> (0) -> Index 0
-    const startIndex = ((week - 1) % 2) * 2; 
+    const { rpe, difficulty } = data;
+    const isBodyweight = feedbackModal.targetWeight === 0;
+    const goal = userProfile?.primary_goal || 'general_fitness';
     
-    const dailyExercisesRaw = themePool.slice(startIndex, startIndex + exerciseCount);
-    
-    // Fallback if DB is empty
-    if (dailyExercisesRaw.length < exerciseCount) {
-       const needed = exerciseCount - dailyExercisesRaw.length;
-       const fallbacks = getFallbackExercises(theme).slice(0, needed);
-       dailyExercisesRaw.push(...fallbacks);
-    }
+    let feedback = "";
+    let extraRest = 0;
 
-    const dailyExercises = dailyExercisesRaw.map((ex) => {
-      const dbMultiplier = ex.beginner_multiplier !== undefined ? Number(ex.beginner_multiplier) : undefined;
-      const baseWeight = calculateStartingWeight(
-        ex.name, userWeight, experience, age, sex, goal, dbMultiplier, oneRepMaxes
-      );
+    if (rpe >= 9 || difficulty === 'failure') {
+      if (goal === 'strength') extraRest = 60;
+      else extraRest = 30;
+
+      feedback = `⚠️ Near failure! I added +${extraRest}s rest.`;
       
-      const progression = Math.floor((week - 1) / 4) * 2.5;
-      const finalWeight = baseWeight > 0 ? baseWeight + progression : 0;
+      if (isBodyweight) {
+        feedback += " Form breaking? Try an easier variation (e.g. knees) or fewer reps.";
+      } else {
+        feedback += " Consider dropping weight by 5% if form broke down.";
+      }
 
-      let baseSets = experience === 'beginner' ? 3 : 4; 
-      if (sessionDuration <= 30) baseSets = 2; 
-      if (isDeload) baseSets = 2;
-
-      return {
-        exercise_name: ex.name,
-        video_url: ex.video_url,
-        setup_cues: ex.setup_cues,
-        execution_cues: ex.execution_cues,
-        common_mistakes: ex.common_mistakes,
-        sets: baseSets,
-        reps: phase.reps,
-        rest_seconds: phase.rest,
-        notes: isDeload ? 'Deload: Focus on form' : `RPE ${phase.rpe}`,
-        suggested_weight_kg: finalWeight,
-        rpe_target: phase.rpe
-      };
-    });
-
-    workouts.push({
-      day: dayNames[i],
-      workout_name: `${theme} Focus`,
-      warmups: getWarmups(theme),
-      exercises: dailyExercises,
-      cool_down: getCooldowns(theme)
-    });
-  }
-  return workouts;
-}
-
-// ==========================================
-// 4. HELPERS
-// ==========================================
-
-function calculateStartingWeight(
-  exerciseName: string, 
-  userWeight: number, 
-  experience: string,
-  age: number,
-  sex: string,
-  goal: string,
-  dbMultiplier?: number,
-  oneRepMaxes?: any
-): number {
-  const name = exerciseName.toLowerCase();
-  
-  // 1. Check Known PRs
-  if (oneRepMaxes) {
-    let knownMax = 0;
-    if (name.includes('bench') && !name.includes('dumbbell')) knownMax = oneRepMaxes.bench_press || 0;
-    else if (name.includes('squat') && !name.includes('goblet')) knownMax = oneRepMaxes.squat || 0;
-    else if (name.includes('deadlift') && !name.includes('romanian')) knownMax = oneRepMaxes.deadlift || 0;
-    else if (name.includes('overhead') || name.includes('military')) knownMax = oneRepMaxes.overhead_press || 0;
-
-    if (knownMax > 0) {
-      let intensity = 0.70;
-      if (goal === 'strength') intensity = 0.80;
-      if (goal === 'fat_loss') intensity = 0.65;
-      return Math.round((knownMax * intensity) / 2.5) * 2.5;
+    } else if (rpe >= 7 && rpe <= 8.5) {
+      feedback = "🔥 Perfect intensity. Keep this pace.";
+    } else if (rpe < 6) {
+      feedback = isBodyweight 
+        ? "🪶 Too easy? Slow down the tempo (3s down) to make it harder." 
+        : "🪶 Looks light! Increase weight by 2.5kg next set.";
+    } else {
+      feedback = "👍 Solid set. Breathe and reset.";
     }
-  }
 
-  // 2. Multiplier Fallback
-  let multiplier = dbMultiplier !== undefined ? Number(dbMultiplier) : 0.5;
-  if (dbMultiplier === undefined) {
-      if (name.includes('squat')) multiplier = 0.4;
-      else if (name.includes('deadlift')) multiplier = 0.5;
-      else if (name.includes('bench')) multiplier = 0.35;
-      else if (name.includes('dumbbell')) multiplier = 0.15;
-      else multiplier = 0;
-  }
-  
-  // Experience Scalar
-  let expScalar = experience === 'beginner' ? 0.7 : (experience === 'advanced' ? 1.2 : 1.0);
-  
-  // Sex Adjustment
-  if (sex === 'female') {
-    multiplier *= (name.includes('bench') || name.includes('push')) ? 0.6 : 0.8;
-  }
+    setCoachMessage(feedback);
+    setFeedbackModal(null);
+    setCurrentRestTime(feedbackModal.restSeconds + extraRest);
+    setShowTimer(true);
 
-  // Age Decay
-  let ageFactor = age >= 60 ? 0.6 : (age >= 40 ? 0.9 : 1.0);
+    logSetResult(
+      null, 
+      feedbackModal.exerciseName,
+      feedbackModal.setNumber,
+      data
+    ).catch(err => console.error('Failed to log set', err));
+  };
 
-  let goalFactor = 1.0;
-  if (goal === 'strength') goalFactor = 1.1;
-  else if (goal === 'fat_loss') goalFactor = 0.85;
+  const handleNextExercise = () => {
+    if (currentExerciseIndex < activeWorkout.exercises.length - 1) {
+      setCurrentExerciseIndex(prev => prev + 1);
+      setActiveTab('logger');
+      window.scrollTo(0,0);
+    } else {
+      const totalSets = activeWorkout.exercises.reduce((acc: number, ex: any) => acc + ex.sets, 0);
+      finishWorkoutSession(null, 3600, 5000, totalSets);
+    }
+  };
 
-  const finalWeight = userWeight * multiplier * expScalar * ageFactor * goalFactor;
-  
-  if (multiplier > 0 && finalWeight < 2.5) return 2.5;
-  return Math.round(finalWeight / 2.5) * 2.5;
+  const handlePrevExercise = () => {
+    if (currentExerciseIndex > 0) setCurrentExerciseIndex(prev => prev - 1);
+  };
+
+  const handleCoachClick = (exerciseName: string, targetReps: string) => {
+    setCoachingModal({
+      isOpen: true,
+      exerciseName,
+      setNumber: 1, 
+      targetReps: parseInt(targetReps) || 8
+    });
+  };
+
+  if (loading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center text-white">Loading...</div>;
+  if (!activeWorkout) return <div className="min-h-screen p-6 text-center">Rest Day</div>;
+
+  const currentExercise = activeWorkout.exercises[currentExerciseIndex];
+  const isLastExercise = currentExerciseIndex === activeWorkout.exercises.length - 1;
+
+  // Render Media Helper
+  const renderMedia = () => {
+    const url = currentExercise.video_url;
+    if (!url) return <div className="text-gray-500 flex flex-col items-center justify-center h-full"><Dumbbell className="w-12 h-12 mb-2 opacity-20"/><p className="text-xs">No Visual</p></div>;
+    if (url.includes('youtube') || url.includes('youtu.be')) return <iframe src={url} title={currentExercise.exercise_name} className="w-full h-full object-cover" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />;
+    return <img src={url} alt={currentExercise.exercise_name} className="w-full h-full object-cover" onError={(e) => (e.target as HTMLImageElement).style.display='none'} />;
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24 transition-colors">
+      
+      {/* Header */}
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10 px-4 h-16 flex items-center justify-between">
+        <button onClick={() => router.back()} className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+          <ChevronLeft className="w-6 h-6 text-gray-600 dark:text-gray-300" />
+        </button>
+        <div className="flex flex-col items-center">
+          <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">
+            {currentExerciseIndex + 1} / {activeWorkout.exercises.length}
+          </span>
+          <h1 className="font-bold text-gray-900 dark:text-white text-sm truncate max-w-[200px]">
+            {currentExercise.exercise_name}
+          </h1>
+        </div>
+        <button onClick={() => handleCoachClick(currentExercise.exercise_name, currentExercise.reps)} className="p-2 -mr-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+          <Brain className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+        </button>
+      </div>
+
+      {/* Media Area */}
+      <div className="bg-black aspect-video w-full relative flex items-center justify-center overflow-hidden group">
+        {renderMedia()}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+        <button onClick={() => setActiveTab('logger')} className={`flex-1 py-3 text-sm font-bold text-center border-b-2 transition-colors ${activeTab === 'logger' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500'}`}>Logger</button>
+        <button onClick={() => setActiveTab('form')} className={`flex-1 py-3 text-sm font-bold text-center border-b-2 transition-colors ${activeTab === 'form' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500'}`}>Form Guide</button>
+      </div>
+
+      {/* Content Area */}
+      <div className="p-4 min-h-[300px]">
+        
+        {/* Stats Card */}
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 mb-6 shadow-sm flex justify-between items-center">
+           <div className="text-center flex-1 border-r border-gray-100 dark:border-gray-800">
+              <span className="block text-xs text-gray-400 uppercase font-bold mb-1 flex items-center justify-center gap-1">
+                <Dumbbell className="w-3 h-3" /> Weight
+              </span>
+              <span className="text-xl font-black text-gray-900 dark:text-white">
+                {currentExercise.suggested_weight_kg > 0 ? `${currentExercise.suggested_weight_kg}kg` : 'BW'}
+              </span>
+           </div>
+           <div className="text-center flex-1 border-r border-gray-100 dark:border-gray-800">
+              <span className="block text-xs text-gray-400 uppercase font-bold mb-1 flex items-center justify-center gap-1">
+                <Repeat className="w-3 h-3" /> Reps
+              </span>
+              <span className="text-xl font-black text-gray-900 dark:text-white">
+                {currentExercise.reps}
+              </span>
+           </div>
+           <div className="text-center flex-1">
+              <span className="block text-xs text-gray-400 uppercase font-bold mb-1 flex items-center justify-center gap-1">
+                <Clock className="w-3 h-3" /> Rest
+              </span>
+              <span className="text-xl font-black text-gray-900 dark:text-white">
+                {currentExercise.rest_seconds}s
+              </span>
+           </div>
+        </div>
+
+        {adjustmentReason && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 px-4 py-3 mb-4 rounded-xl border border-blue-100 dark:border-blue-800 flex gap-3">
+            <AlertTriangle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+            <p className="text-sm text-blue-800 dark:text-blue-200 leading-tight">{adjustmentReason}</p>
+          </div>
+        )}
+
+        <AnimatePresence mode="wait">
+          {activeTab === 'logger' ? (
+            <motion.div 
+              key="logger"
+              initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
+              className="space-y-4"
+            >
+              {/* ✅ RESTORED: Warmups (Only First Exercise) */}
+              {currentExerciseIndex === 0 && activeWorkout.warmups?.length > 0 && (
+                <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-xl border border-orange-100 dark:border-orange-800 mb-4">
+                  <h3 className="font-bold text-orange-800 dark:text-orange-200 mb-2 flex items-center gap-2 text-sm"><Flame className="w-4 h-4" /> Warm-up Routine</h3>
+                  <ul className="list-disc list-inside text-xs text-orange-700 dark:text-orange-300 space-y-1">{activeWorkout.warmups.map((w: string, i: number) => <li key={i}>{w}</li>)}</ul>
+                </div>
+              )}
+
+              <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
+                <div className="grid grid-cols-10 gap-2 p-3 bg-gray-50 dark:bg-gray-800/50 text-xs font-bold text-gray-500 dark:text-gray-400 text-center border-b border-gray-100 dark:border-gray-800">
+                  <div className="col-span-2">SET</div>
+                  <div className="col-span-3">KG</div>
+                  <div className="col-span-3">REPS</div>
+                  <div className="col-span-2">DONE</div>
+                </div>
+                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {Array.from({ length: currentExercise.sets }).map((_, i) => (
+                    <SetRow 
+                      key={`${currentExercise.exercise_name}-${i}`} 
+                      setNumber={i + 1} 
+                      targetReps={currentExercise.reps}
+                      suggestedWeight={currentExercise.suggested_weight_kg}
+                      onTrigger={(w, r) => handleSetClick(currentExercise.exercise_name, i, currentExercise.reps, currentExercise.rest_seconds, w, r)}
+                    />
+                  ))}
+                </div>
+              </div>
+              
+              {/* ✅ RESTORED: Cooldown (Only Last Exercise) */}
+              {isLastExercise && activeWorkout.cool_down?.length > 0 && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 mt-6">
+                  <h3 className="font-bold text-blue-800 dark:text-blue-200 mb-2 flex items-center gap-2 text-sm"><Wind className="w-4 h-4" /> Cool-down</h3>
+                  <ul className="list-disc list-inside text-xs text-blue-700 dark:text-blue-300 space-y-1">{activeWorkout.cool_down.map((c: string, i: number) => <li key={i}>{c}</li>)}</ul>
+                </div>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="form"
+              initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+              className="space-y-6"
+            >
+              <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
+                <h3 className="font-bold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-2 text-sm"><CheckCircle2 className="w-4 h-4" /> Perfect Form</h3>
+                <ul className="space-y-2">{currentExercise.execution_cues?.length > 0 ? currentExercise.execution_cues.map((cue: string, i: number) => <li key={i} className="text-sm text-blue-700 dark:text-blue-200 flex gap-2 items-start"><span className="w-1.5 h-1.5 bg-blue-400 rounded-full mt-1.5 flex-shrink-0" />{cue}</li>) : <p className="text-sm text-gray-500 italic">No cues available.</p>}</ul>
+              </div>
+              <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-800">
+                <h3 className="font-bold text-red-800 dark:text-red-300 mb-2 flex items-center gap-2 text-sm"><AlertCircle className="w-4 h-4" /> Common Mistakes</h3>
+                <ul className="space-y-2">{currentExercise.common_mistakes?.length > 0 ? currentExercise.common_mistakes.map((mistake: string, i: number) => <li key={i} className="text-sm text-red-700 dark:text-red-200 flex gap-2 items-start"><span className="w-1.5 h-1.5 bg-red-400 rounded-full mt-1.5 flex-shrink-0" />{mistake}</li>) : <p className="text-sm text-gray-500 italic">No mistakes listed.</p>}</ul>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex gap-4 z-20 safe-area-pb">
+        <button onClick={handlePrevExercise} disabled={currentExerciseIndex === 0} className="px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30 hover:bg-gray-50 dark:hover:bg-gray-800"><ChevronLeft className="w-6 h-6" /></button>
+        <button onClick={handleNextExercise} className={`flex-1 py-3 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-2 transition-colors ${isLastExercise ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'}`}>{isLastExercise ? 'Finish Workout' : 'Next Exercise'} {isLastExercise ? <CheckCircle2 className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}</button>
+      </div>
+
+      {coachingModal && <PreSetCoaching {...coachingModal} onReady={() => setCoachingModal(null)} onSkip={() => setCoachingModal(null)} />}
+      
+      {feedbackModal && <AISetFeedback {...feedbackModal} onSave={handleFeedbackSave} onCancel={() => setFeedbackModal(null)} />}
+      
+      {showTimer && <EnhancedRestTimer initialSeconds={currentRestTime} coachMessage={coachMessage} onComplete={() => setShowTimer(false)} onClose={() => setShowTimer(false)} />}
+    </div>
+  );
 }
 
-type SplitDay = 'Full Body' | 'Upper' | 'Lower' | 'Push' | 'Pull' | 'Legs' | 'Core' | 'Cardio';
+function SetRow({ setNumber, targetReps, suggestedWeight, onTrigger }: { setNumber: number, targetReps: string, suggestedWeight: number, onTrigger: (w: number, r: string) => void }) {
+  const [completed, setCompleted] = useState(false);
+  const [weight, setWeight] = useState(suggestedWeight ? String(suggestedWeight) : '');
+  const [reps, setReps] = useState(targetReps?.split('-')[0] || '');
 
-interface SplitPattern {
-  name: string;
-  schedule: SplitDay[];
+  const handleCheck = () => {
+    if(!completed) onTrigger(Number(weight), reps);
+    setCompleted(!completed);
+  };
+
+  return (
+    <div className={`grid grid-cols-10 gap-2 p-3 items-center transition-colors ${completed ? 'bg-green-50 dark:bg-green-900/20' : ''}`}>
+      <div className="col-span-2 flex justify-center"><span className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-bold text-gray-500 dark:text-gray-400">{setNumber}</span></div>
+      <div className="col-span-3"><input type="number" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder={String(suggestedWeight || 0)} className="w-full text-center bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg py-2 text-sm font-bold text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none" /></div>
+      <div className="col-span-3"><input type="text" value={reps} onChange={(e) => setReps(e.target.value)} placeholder={targetReps} className="w-full text-center bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg py-2 text-sm font-bold text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none" /></div>
+      <div className="col-span-2 flex justify-center"><motion.button whileTap={{ scale: 0.9 }} onClick={handleCheck} className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${completed ? 'bg-green-500 text-white shadow-md' : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-300 dark:hover:bg-gray-600'}`}><CheckCircle2 className="w-5 h-5" /></motion.button></div>
+    </div>
+  );
 }
-
-function getSplitPattern(days: number): SplitPattern {
-  if (days === 1) return { name: "Full Body", schedule: ['Full Body'] };
-  if (days === 2) return { name: "Full Body", schedule: ['Full Body', 'Full Body'] };
-  if (days === 3) return { name: "Full Body", schedule: ['Full Body', 'Full Body', 'Full Body'] };
-  if (days === 4) return { name: "Upper/Lower", schedule: ['Upper', 'Lower', 'Upper', 'Lower'] };
-  if (days === 5) return { name: "Hybrid PPL", schedule: ['Upper', 'Lower', 'Push', 'Pull', 'Legs'] }; 
-  if (days === 6) return { name: "PPL", schedule: ['Push', 'Pull', 'Legs', 'Push', 'Pull', 'Legs'] };
-  return { name: "Daily", schedule: ['Push', 'Pull', 'Legs', 'Upper', 'Lower', 'Full Body', 'Cardio'] };
-}
-
-function getExercisesForTheme(pool: any[], theme: SplitDay): any[] {
-  switch (theme) {
-    case 'Upper':
-      return pool.filter(e => ['chest', 'back', 'shoulders', 'biceps', 'triceps'].includes(e.primary_muscle));
-    case 'Lower':
-    case 'Legs':
-      return pool.filter(e => ['quads', 'hamstrings', 'glutes', 'calves'].includes(e.primary_muscle));
-    case 'Push':
-      return pool.filter(e => ['push_horizontal', 'push_vertical'].includes(e.movement_pattern) || ['chest', 'shoulders', 'triceps'].includes(e.primary_muscle));
-    case 'Pull':
-      return pool.filter(e => ['pull_horizontal', 'pull_vertical'].includes(e.movement_pattern) || ['back', 'biceps'].includes(e.primary_muscle));
-    case 'Core':
-      return pool.filter(e => e.primary_muscle === 'abs');
-    case 'Full Body':
-    default:
-      return pool;
-  }
-}
-
-function filterExercisesForSafety(exercises: any[], injuries: string[]) {
-  if (!injuries.length) return exercises;
-  return exercises.filter(ex => {
-    const name = ex.name.toLowerCase();
-    if (injuries.includes('shoulder') && (name.includes('overhead') || name.includes('press') || name.includes('dip'))) return false;
-    if (injuries.includes('knee') && (name.includes('jump') || name.includes('lunge') || name.includes('leg extension'))) return false;
-    if ((injuries.includes('lower_back') || injuries.includes('back')) && (name.includes('deadlift') || name.includes('row'))) return false;
-    return true;
-  });
-}
-
-function getPhaseVariables(week: number, goal: string) {
-  const isStrength = goal === 'strength';
-  const isAthletic = goal === 'athletic_performance';
-  const isFatLoss = goal === 'fat_loss';
-
-  if (week === 9) return { name: 'Active Recovery', setsMult: 0.6, reps: 'Deload', rest: 60, rpe: 5 };
-
-  if (isAthletic) {
-    if (week <= 4) return { name: 'Phase 1: GPP & Capacity', setsMult: 1.0, reps: '12-15', rest: 60, rpe: 7 };
-    if (week <= 8) return { name: 'Phase 2: Max Strength', setsMult: 1.0, reps: '5-8', rest: 120, rpe: 8 };
-    return { name: 'Phase 3: Power Conversion', setsMult: 1.0, reps: '3-5', rest: 180, rpe: 8.5 };
-  }
-
-  if (isStrength) {
-    if (week <= 4) return { name: 'Phase 1: Hypertrophy Base', setsMult: 1.0, reps: '8-10', rest: 90, rpe: 7 };
-    if (week <= 8) return { name: 'Phase 2: Strength Realization', setsMult: 1.0, reps: '5-6', rest: 180, rpe: 8.5 };
-    return { name: 'Phase 3: Peak Strength', setsMult: 1.0, reps: '3-5', rest: 240, rpe: 9.5 };
-  }
-
-  if (isFatLoss) {
-    if (week <= 4) return { name: 'Phase 1: Endurance', setsMult: 1.0, reps: '15-20', rest: 30, rpe: 7 };
-    if (week <= 8) return { name: 'Phase 2: Metabolic Capacity', setsMult: 1.0, reps: '12-15', rest: 45, rpe: 8 };
-    return { name: 'Phase 3: Lactate Threshold', setsMult: 1.0, reps: '10-12', rest: 45, rpe: 9 };
-  }
-
-  if (week <= 4) return { name: 'Phase 1: Volume Accumulation', setsMult: 1.0, reps: '10-12', rest: 60, rpe: 7 };
-  if (week <= 8) return { name: 'Phase 2: Hypertrophy', setsMult: 1.0, reps: '8-10', rest: 90, rpe: 8 };
-  return { name: 'Phase 3: Intensity', setsMult: 1.0, reps: '6-8', rest: 120, rpe: 9 };
-}
-
-function getWarmups(theme: SplitDay) {
-  if (theme === 'Lower' || theme === 'Legs') return ["5 mins Bike", "Leg Swings", "Bodyweight Squats", "Glute Bridges"];
-  if (theme === 'Upper' || theme === 'Push' || theme === 'Pull') return ["5 mins Row", "Arm Circles", "Band Pull-aparts", "Push-up Hold"];
-  return ["5 mins Light Cardio", "Jumping Jacks", "World's Greatest Stretch"];
-}
-
-function getCooldowns(theme: SplitDay) {
-  if (theme === 'Lower' || theme === 'Legs') return ["Hamstring Stretch", "Quad Stretch", "Pigeon Pose"];
-  return ["Doorway Chest Stretch", "Child's Pose", "Tricep Stretch"];
-}
-
-function getFallbackExercises(theme: SplitDay) {
-  const placeholderVideo = ""; 
-  
-  switch (theme) {
-    case 'Lower':
-    case 'Legs':
-      return [
-        { name: 'Bodyweight Squats', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Walking Lunges', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Glute Bridges', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Calf Raises', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight', video_url: placeholderVideo }
-      ];
-    case 'Push':
-    case 'Upper':
-      return [
-        { name: 'Push-ups', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Pike Push-ups', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Tricep Dips (Chair)', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Diamond Push-ups', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight', video_url: placeholderVideo }
-      ];
-    case 'Pull':
-      return [
-        { name: 'Doorframe Rows', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Superman Hold', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Scapular Retractions', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Towel Bicep Curls', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight', video_url: placeholderVideo }
-      ];
-    case 'Core':
-      return [
-        { name: 'Plank', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Crunches', beginner_multiplier: 0, tier: 'tier_1', equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Leg Raises', beginner_multiplier: 0, tier: 'tier_2', equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Russian Twists', beginner_multiplier: 0, tier: 'tier_3', equipment: 'bodyweight', video_url: placeholderVideo }
-      ];
-    default: 
-      return [
-        { name: 'Bodyweight Squats', beginner_multiplier: 0, equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Push-ups', beginner_multiplier: 0, equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Lunges', beginner_multiplier: 0, equipment: 'bodyweight', video_url: placeholderVideo },
-        { name: 'Plank', beginner_multiplier: 0, equipment: 'bodyweight', video_url: placeholderVideo }
-      ];
-  }
-}
-
-function getDaySplit(days: number) {
-  if (days === 3) return ['Monday', 'Wednesday', 'Friday'];
-  if (days === 4) return ['Monday', 'Tuesday', 'Thursday', 'Friday'];
-  return ['Monday', 'Tuesday', 'Wednesday', 'Friday', 'Saturday'];
-}
-
-function phaseFocus(goal: string) {
-  if (goal.includes('muscle')) return "Hypertrophy";
-  if (goal.includes('strength')) return "Strength";
-  if (goal.includes('fat')) return "Metabolic Conditioning";
-  if (goal.includes('athletic')) return "Power";
-  return "General Fitness";
-}
-
-function capitalize(s: string) { return s.charAt(0).toUpperCase() + s.slice(1); }

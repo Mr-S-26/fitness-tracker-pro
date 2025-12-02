@@ -52,7 +52,7 @@ export async function generatePersonalizedProgram(
   formData: OnboardingFormData,
   userId: string
 ): Promise<GeneratedPlan> {
-  console.log('🤖 Starting Time-Aware Plan Generation...');
+  console.log('🤖 Starting Final V1 Plan Generation...');
   
   const supabase = await createClient();
   
@@ -88,7 +88,7 @@ export async function generatePersonalizedProgram(
 function generateScientificProgram(formData: OnboardingFormData, exercisePool: any[]): WorkoutProgram {
   // Extract Inputs
   const daysPerWeek = formData.available_days_per_week || 3;
-  const sessionDuration = formData.session_duration_minutes || 60; // ✅ Default to 60 if missing
+  const sessionDuration = formData.session_duration_minutes || 60; 
   const selectedDays = formData.selected_days; 
   const goal = formData.primary_goal || 'general_fitness';
   const experience = formData.training_experience || 'beginner';
@@ -119,7 +119,7 @@ function generateScientificProgram(formData: OnboardingFormData, exercisePool: a
       sex,
       goal,
       phase,
-      sessionDuration, // ✅ Pass duration down
+      sessionDuration,
       selectedDays
     );
 
@@ -156,14 +156,13 @@ function buildWeekWorkouts(
   sex: string,
   goal: string,
   phase: any,
-  sessionDuration: number, // ✅ Received Duration
+  sessionDuration: number, 
   oneRepMaxes?: any,
   selectedDays?: string[]
 ) {
   const workouts = [];
   
-  // ✅ LOGIC: Determine Exercise Count based on Time
-  // Approx 8-10 mins per exercise (including warmups/rest) is a safe heuristic
+  // Exercise Count Logic
   let exerciseCount = 5; // Default 60 mins
   if (sessionDuration <= 30) exerciseCount = 3;
   else if (sessionDuration <= 45) exerciseCount = 4;
@@ -191,9 +190,12 @@ function buildWeekWorkouts(
        return 0;
     });
 
-    // Select Exercises
-    const startIndex = (week % 2) * 2; 
-    // ✅ USE DYNAMIC COUNT
+    // ✅ FIX: Week 1 should start at index 0 (Best Exercises)
+    // Week 1 -> (0) -> Index 0
+    // Week 2 -> (1) -> Index 2
+    // Week 3 -> (0) -> Index 0
+    const startIndex = ((week - 1) % 2) * 2; 
+    
     const dailyExercisesRaw = themePool.slice(startIndex, startIndex + exerciseCount);
     
     // Fallback if DB is empty
@@ -213,8 +215,7 @@ function buildWeekWorkouts(
       const finalWeight = baseWeight > 0 ? baseWeight + progression : 0;
 
       let baseSets = experience === 'beginner' ? 3 : 4; 
-      // Adjust sets for very short workouts to fit volume
-      if (sessionDuration <= 30) baseSets = 2; // 2 sets for 30 min workouts
+      if (sessionDuration <= 30) baseSets = 2; 
       if (isDeload) baseSets = 2;
 
       return {
@@ -244,7 +245,7 @@ function buildWeekWorkouts(
 }
 
 // ==========================================
-// 4. HELPERS (Logic remains mostly same)
+// 4. HELPERS
 // ==========================================
 
 function calculateStartingWeight(
@@ -305,9 +306,6 @@ function calculateStartingWeight(
   if (multiplier > 0 && finalWeight < 2.5) return 2.5;
   return Math.round(finalWeight / 2.5) * 2.5;
 }
-
-// ... (Copy existing helpers below: getPhaseVariables, getWarmups, getCooldowns, getFallbackExercises, getDaySplit, etc.)
-// ... (Use the same helpers from your previous file version)
 
 type SplitDay = 'Full Body' | 'Upper' | 'Lower' | 'Push' | 'Pull' | 'Legs' | 'Core' | 'Cardio';
 
