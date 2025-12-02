@@ -46,7 +46,12 @@ export default function ReviewStep({ formData, program, nutrition, userId, onCom
         // Schedule
         available_days_per_week: formData.available_days_per_week || 3,
         session_duration_minutes: formData.session_duration_minutes || 60,
-        preferred_training_times: formData.preferred_training_times || [],
+        
+        // ✅ FIX: Use new fields and map to DB structure
+        preferred_workout_time: formData.preferred_workout_time || null,
+        reminders_enabled: formData.reminders_enabled || false,
+        // Backward compatibility: map single time to array
+        preferred_training_times: formData.preferred_workout_time ? [formData.preferred_workout_time] : [],
         
         // Equipment
         training_location: formData.training_location || null,
